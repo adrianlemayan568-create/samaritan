@@ -1,0 +1,16 @@
+[project]
+name = "samaritan"
+version = "0.1.0"
+description = "A local-first, evidence-driven cybersecurity intelligence platform."
+requires-python = ">=3.14"
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-ra"
