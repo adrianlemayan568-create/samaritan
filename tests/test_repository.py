@@ -609,3 +609,226 @@ def test_quarantine_with_unknown_source_is_rejected(tmp_path):
         ).fetchone()[0]
 
     assert count == 0
+
+
+def test_get_observation_preserves_original_evidence(tmp_path):
+    repository, _, source = make_repository(tmp_path)
+    raw_payload = '{ "evidence": true, "sequence": 7 }\n'
+    observation = make_observation(source, raw_payload)
+
+    repository.persist_observation(observation)
+
+    retrieved = repository.get_observation(observation.observation_id)
+
+    assert retrieved == observation
+    assert retrieved.raw_payload == raw_payload
+    assert retrieved.payload_sha256 == payload_checksum(raw_payload)
+
+
+def test_get_observation_returns_none_when_missing(tmp_path):
+    repository, _, _ = make_repository(tmp_path)
+
+    assert repository.get_observation(new_id()) is None
+
+
+def test_list_observations_orders_filters_and_paginates(tmp_path):
+    repository, _, source = make_repository(tmp_path)
+
+    first = make_observation(source, '{"sequence":1}')
+    second = make_observation(source, '{"sequence":2}')
+    third = make_observation(source, '{"sequence":3}')
+
+    for observation in (first, second, third):
+        repository.persist_observation(observation)
+
+    expected = tuple(
+        sorted(
+            (first, second, third),
+            key=lambda item: (item.received_at, item.observation_id),
+        )
+    )
+
+    observations = repository.list_observations(
+        source_id=source.source_id,
+        limit=2,
+    )
+
+    assert observations == expected[:2]
+
+    next_page = repository.list_observations(
+        source_id=source.source_id,
+        limit=2,
+        offset=2,
+    )
+
+    assert next_page == expected[2:]
+
+
+
+def test_list_observations_uses_stable_id_order_for_equal_timestamps(
+    tmp_path,
+):
+    repository, _, source = make_repository(tmp_path)
+
+    first = make_observation(source, '{"sequence":1}')
+    second = make_observation(source, '{"sequence":2}')
+
+    ordered = sorted(
+        (first, second),
+        key=lambda item: item.observation_id,
+    )
+
+    for observation in (first, second):
+        repository.persist_observation(observation)
+
+    retrieved = repository.list_observations(
+        source_id=source.source_id,
+    )
+
+    assert retrieved == tuple(ordered)
+
+
+def test_get_event_reconstructs_ordered_participants(tmp_path):
+    repository, _, source = make_repository(tmp_path)
+
+    observation = make_observation(source)
+    first_entity = make_entity("ip_address", "192.0.2.10")
+    second_entity = make_entity("username", "synthetic-user")
+
+    event = Event(
+        event_id=new_id(),
+        observation_id=observation.observation_id,
+        event_type="authentication_failure",
+        occurred_at=NOW,
+        original_timestamp="2026-11-16T10:00:00Z",
+        normalized_data_json='{"result":"failure"}',
+        participants=(
+            EventParticipant(first_entity.entity_id, "source"),
+            EventParticipant(second_entity.entity_id, "target"),
+        ),
+    )
+
+    repository.persist_observation(
+        observation,
+        entities=(first_entity, second_entity),
+        events=(event,),
+    )
+
+    retrieved = repository.get_event(event.event_id)
+
+    assert retrieved == event
+    assert retrieved.participants == (
+        EventParticipant(first_entity.entity_id, "source"),
+        EventParticipant(second_entity.entity_id, "target"),
+    )
+
+
+def test_get_event_returns_none_when_missing(tmp_path):
+    repository, _, _ = make_repository(tmp_path)
+
+    assert repository.get_event(new_id()) is None
+
+
+def test_list_events_orders_filters_and_paginates(tmp_path):
+    repository, _, source = make_repository(tmp_path)
+
+    first_observation = make_observation(source, '{"sequence":1}')
+    second_observation = make_observation(source, '{"sequence":2}')
+
+    earlier = Event(
+        event_id=new_id(),
+        observation_id=first_observation.observation_id,
+        event_type="authentication_failure",
+        occurred_at=NOW.replace(hour=9),
+        original_timestamp="2026-11-16T09:00:00Z",
+        normalized_data_json='{"result":"failure"}',
+        participants=(),
+    )
+
+    later = Event(
+        event_id=new_id(),
+        observation_id=second_observation.observation_id,
+        event_type="authentication_success",
+        occurred_at=NOW.replace(hour=11),
+        original_timestamp="2026-11-16T11:00:00Z",
+        normalized_data_json='{"result":"success"}',
+        participants=(),
+    )
+
+    repository.persist_observation(
+        first_observation,
+        events=(earlier,),
+    )
+    repository.persist_observation(
+        second_observation,
+        events=(later,),
+    )
+
+    assert repository.list_events() == (earlier, later)
+    assert repository.list_events(limit=1) == (earlier,)
+    assert repository.list_events(limit=1, offset=1) == (later,)
+    assert repository.list_events(
+        observation_id=second_observation.observation_id,
+    ) == (later,)
+
+
+@pytest.mark.parametrize(
+    ("limit", "offset", "exception"),
+    [
+        (0, 0, ValueError),
+        (501, 0, ValueError),
+        (-1, 0, ValueError),
+        (True, 0, TypeError),
+        (1.5, 0, TypeError),
+        (1, -1, ValueError),
+        (1, True, TypeError),
+        (1, 1.5, TypeError),
+    ],
+)
+def test_list_methods_reject_invalid_pagination(
+    tmp_path,
+    limit,
+    offset,
+    exception,
+):
+    repository, _, _ = make_repository(tmp_path)
+
+    with pytest.raises(exception):
+        repository.list_observations(limit=limit, offset=offset)
+
+    with pytest.raises(exception):
+        repository.list_events(limit=limit, offset=offset)
+
+def test_list_events_hydrates_participants_in_batch(tmp_path):
+    repository, _, source = make_repository(tmp_path)
+    observation = make_observation(source)
+
+    first_entity = make_entity()
+    second_entity = make_entity("username", "synthetic-user")
+
+    first = make_event(
+        observation,
+        (first_entity.entity_id, second_entity.entity_id),
+    )
+    second = make_event(
+        observation,
+        (second_entity.entity_id, first_entity.entity_id),
+    )
+
+    repository.persist_observation(
+        observation,
+        entities=(first_entity, second_entity),
+        events=(first, second),
+    )
+
+    retrieved = repository.list_events()
+
+    expected = {
+        first.event_id: first.participants,
+        second.event_id: second.participants,
+    }
+
+    assert len(retrieved) == 2
+
+    for event in retrieved:
+        assert event.participants == expected[event.event_id]

@@ -6,11 +6,13 @@ import sqlite3
 from samaritan.contracts import (
     Entity,
     Event,
+    EventParticipant,
     Observation,
     QuarantinedObservation,
     Relationship,
     Source,
     parse_timestamp,
+    validate_id,
     validate_text,
 )
 from samaritan.database import Database, DatabaseIntegrityError
@@ -355,6 +357,249 @@ class Repository:
             )
 
         return existing["entity_id"]
+
+    @staticmethod
+    def _validate_pagination(limit: int, offset: int) -> None:
+        """Validate bounded pagination parameters."""
+        if type(limit) is not int:
+            raise TypeError("limit must be an integer")
+        if not 1 <= limit <= 500:
+            raise ValueError("limit must be between 1 and 500")
+
+        if type(offset) is not int:
+            raise TypeError("offset must be an integer")
+        if offset < 0:
+            raise ValueError("offset must not be negative")
+
+    @staticmethod
+    def _observation_from_row(row: sqlite3.Row) -> Observation:
+        """Reconstruct and validate an observation contract."""
+        return Observation(
+            observation_id=row["observation_id"],
+            source_id=row["source_id"],
+            received_at=parse_timestamp(
+                row["received_at"], "received_at"
+            ),
+            raw_payload=row["raw_payload"],
+            payload_sha256=row["payload_sha256"],
+            schema_version=row["schema_version"],
+        )
+
+    @staticmethod
+    def _load_event_participants(
+        connection: sqlite3.Connection,
+        event_ids: Sequence[str],
+    ) -> dict[str, tuple[EventParticipant, ...]]:
+        """Load participants for multiple events in one database query."""
+        if not event_ids:
+            return {}
+
+        placeholders = ", ".join("?" for _ in event_ids)
+
+        rows = connection.execute(
+            f"""
+            SELECT event_id, entity_id, role
+            FROM event_participants
+            WHERE event_id IN ({placeholders})
+            ORDER BY event_id, participant_index
+            """,
+            tuple(event_ids),
+        ).fetchall()
+
+        grouped: dict[str, list[EventParticipant]] = {
+            event_id: [] for event_id in event_ids
+        }
+
+        for row in rows:
+            grouped[row["event_id"]].append(
+                EventParticipant(
+                    entity_id=row["entity_id"],
+                    role=row["role"],
+                )
+            )
+
+        return {
+            event_id: tuple(participants)
+            for event_id, participants in grouped.items()
+        }
+
+    @staticmethod
+    def _event_from_row(
+        row: sqlite3.Row,
+        participants: tuple[EventParticipant, ...],
+    ) -> Event:
+        """Reconstruct and validate an event contract."""
+        return Event(
+            event_id=row["event_id"],
+            observation_id=row["observation_id"],
+            event_type=row["event_type"],
+            occurred_at=parse_timestamp(
+                row["occurred_at"], "occurred_at"
+            ),
+            original_timestamp=row["original_timestamp"],
+            normalized_data_json=row["normalized_data_json"],
+            participants=participants,
+            schema_version=row["schema_version"],
+        )
+
+    def get_observation(
+        self,
+        observation_id: str,
+    ) -> Observation | None:
+        """Retrieve one accepted observation by ID."""
+        observation_id = validate_id(observation_id, "observation_id")
+
+        with self.database.connection() as connection:
+            row = connection.execute(
+                """
+                SELECT
+                    observation_id,
+                    source_id,
+                    received_at,
+                    raw_payload,
+                    payload_sha256,
+                    schema_version
+                FROM observations
+                WHERE observation_id = ?
+                """,
+                (observation_id,),
+            ).fetchone()
+
+        if row is None:
+            return None
+
+        return self._observation_from_row(row)
+
+    def list_observations(
+        self,
+        source_id: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> tuple[Observation, ...]:
+        """List observations in stable receipt-time order."""
+        self._validate_pagination(limit, offset)
+
+        if source_id is not None:
+            source_id = validate_id(source_id, "source_id")
+
+        query = """
+            SELECT
+                observation_id,
+                source_id,
+                received_at,
+                raw_payload,
+                payload_sha256,
+                schema_version
+            FROM observations
+        """
+        parameters: list[object] = []
+
+        if source_id is not None:
+            query += " WHERE source_id = ?"
+            parameters.append(source_id)
+
+        query += """
+            ORDER BY received_at, observation_id
+            LIMIT ? OFFSET ?
+        """
+        parameters.extend((limit, offset))
+
+        with self.database.connection() as connection:
+            rows = connection.execute(
+                query,
+                parameters,
+            ).fetchall()
+
+        return tuple(self._observation_from_row(row) for row in rows)
+
+    def get_event(self, event_id: str) -> Event | None:
+        """Retrieve one event together with its ordered participants."""
+        event_id = validate_id(event_id, "event_id")
+
+        with self.database.connection() as connection:
+            row = connection.execute(
+                """
+                SELECT
+                    event_id,
+                    observation_id,
+                    event_type,
+                    occurred_at,
+                    original_timestamp,
+                    normalized_data_json,
+                    schema_version
+                FROM events
+                WHERE event_id = ?
+                """,
+                (event_id,),
+            ).fetchone()
+
+            if row is None:
+                return None
+
+            participants = self._load_event_participants(
+                connection,
+                (event_id,),
+            )
+
+        return self._event_from_row(
+            row,
+            participants[event_id],
+        )
+
+    def list_events(
+        self,
+        observation_id: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> tuple[Event, ...]:
+        """List events chronologically with their ordered participants."""
+        self._validate_pagination(limit, offset)
+
+        if observation_id is not None:
+            observation_id = validate_id(
+                observation_id,
+                "observation_id",
+            )
+
+        query = """
+            SELECT
+                event_id,
+                observation_id,
+                event_type,
+                occurred_at,
+                original_timestamp,
+                normalized_data_json,
+                schema_version
+            FROM events
+        """
+        parameters: list[object] = []
+
+        if observation_id is not None:
+            query += " WHERE observation_id = ?"
+            parameters.append(observation_id)
+
+        query += """
+            ORDER BY occurred_at, event_id
+            LIMIT ? OFFSET ?
+        """
+        parameters.extend((limit, offset))
+
+        with self.database.connection() as connection:
+            rows = connection.execute(
+                query,
+                parameters,
+            ).fetchall()
+
+            event_ids = tuple(row["event_id"] for row in rows)
+            participants = self._load_event_participants(
+                connection,
+                event_ids,
+            )
+
+        return tuple(
+            self._event_from_row(row, participants[row["event_id"]])
+            for row in rows
+        )
 
     def get_entity_by_identity(
         self,
