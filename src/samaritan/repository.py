@@ -601,6 +601,75 @@ class Repository:
             for row in rows
         )
 
+
+    def get_entities_by_ids(
+        self,
+        entity_ids: Iterable[str],
+    ) -> tuple[Entity, ...]:
+        """Retrieve entities by ID, preserving requested order.
+
+        Duplicate requested IDs are queried only once. Missing IDs
+        are omitted from the returned tuple.
+        """
+        if isinstance(entity_ids, (str, bytes)):
+            raise TypeError("entity_ids must be an iterable of IDs")
+
+        try:
+            supplied_ids = tuple(entity_ids)
+        except TypeError as exc:
+            raise TypeError("entity_ids must be iterable") from exc
+
+        requested_ids = tuple(
+            validate_id(item, "entity_id")
+            for item in supplied_ids
+        )
+
+        unique_ids = tuple(dict.fromkeys(requested_ids))
+
+        if not unique_ids:
+            return ()
+
+        entities_by_id: dict[str, Entity] = {}
+
+        with self.database.connection() as connection:
+            # Stay below SQLite's commonly configured variable limit.
+            for start in range(0, len(unique_ids), 900):
+                batch = unique_ids[start:start + 900]
+                placeholders = ", ".join("?" for _ in batch)
+
+                rows = connection.execute(
+                    f"""
+                    SELECT
+                        entity_id,
+                        entity_type,
+                        canonical_identifier,
+                        created_at,
+                        schema_version
+                    FROM entities
+                    WHERE entity_id IN ({placeholders})
+                    """,
+                    batch,
+                ).fetchall()
+
+                for row in rows:
+                    entity = Entity(
+                        entity_id=row["entity_id"],
+                        entity_type=row["entity_type"],
+                        canonical_identifier=row["canonical_identifier"],
+                        created_at=parse_timestamp(
+                            row["created_at"],
+                            "created_at",
+                        ),
+                        schema_version=row["schema_version"],
+                    )
+                    entities_by_id[entity.entity_id] = entity
+
+        return tuple(
+            entities_by_id[entity_id]
+            for entity_id in unique_ids
+            if entity_id in entities_by_id
+        )
+
     def get_entity_by_identity(
         self,
         entity_type: str,
