@@ -29,11 +29,11 @@ class PropositionRoleDefinition:
     role_name: str
     role_kind: str
     cardinality: str
+    meaning: str
     entity_type: str | None = None
     event_type: str | None = None
     required: bool = True
     schema_version: int = SCHEMA_VERSION
-    meaning: str = ""
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -224,7 +224,9 @@ class PropositionSemantics:
                 self, "description", validate_text(self.description, "description")
             )
 
-        if type(self.semantics_version) is not int or self.semantics_version <= 0:
+        if type(self.semantics_version) is not int:
+            raise TypeError("semantics_version must be an integer")
+        if self.semantics_version <= 0:
             raise ValueError("semantics_version must be a positive integer")
 
         if not isinstance(self.roles, tuple) or not self.roles:
@@ -257,15 +259,6 @@ class PropositionSemantics:
                 "temporal_scope must be a TemporalScopeDefinition or None"
             )
 
-        if (
-            self.proposition_type == "account_authentication_sequence"
-            and self.semantics_version == 1
-            and self.temporal_scope is None
-        ):
-            raise ValueError(
-                "account_authentication_sequence@1 requires a temporal scope"
-            )
-
         if not isinstance(self.parameters, tuple):
             raise TypeError("parameters must be a tuple")
 
@@ -281,9 +274,12 @@ class PropositionSemantics:
         if len(role_names) != len(set(role_names)):
             raise ValueError("proposition role names must be unique")
 
-        event_role_names = {
-            item.role_name for item in self.roles if item.role_kind == "event"
+        event_roles = {
+            item.role_name: item
+            for item in self.roles
+            if item.role_kind == "event"
         }
+        event_role_names = set(event_roles)
 
         constraint_pairs = set()
         for constraint in self.temporal_constraints:
@@ -293,6 +289,13 @@ class PropositionSemantics:
             ):
                 raise ValueError(
                     "temporal constraints must reference declared event roles"
+                )
+            if (
+                not event_roles[constraint.earlier_role].required
+                or not event_roles[constraint.later_role].required
+            ):
+                raise ValueError(
+                    "temporal constraints must reference required event roles"
                 )
 
             pair = (constraint.earlier_role, constraint.later_role)
@@ -339,6 +342,13 @@ class PropositionSemantics:
             ):
                 raise ValueError(
                     "temporal scope must reference declared event roles"
+                )
+            if (
+                not event_roles[start_role].required
+                or not event_roles[end_role].required
+            ):
+                raise ValueError(
+                    "temporal scope must reference required event roles"
                 )
 
             # Require a directed temporal path from start to end.
@@ -392,7 +402,9 @@ class PropositionSemanticsRegistry:
     ) -> PropositionSemantics:
         proposition_type = validate_text(proposition_type, "proposition_type")
 
-        if type(semantics_version) is not int or semantics_version <= 0:
+        if type(semantics_version) is not int:
+            raise TypeError("semantics_version must be an integer")
+        if semantics_version <= 0:
             raise ValueError("semantics_version must be a positive integer")
 
         try:

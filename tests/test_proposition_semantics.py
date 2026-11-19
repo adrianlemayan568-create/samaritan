@@ -19,6 +19,7 @@ def make_role(
     kind="event",
     target="authentication_failure",
     meaning=None,
+    required=True,
 ):
     if meaning is None:
         meaning = (
@@ -33,6 +34,7 @@ def make_role(
             role_kind="entity",
             cardinality="one",
             entity_type=target,
+            required=required,
             meaning=meaning,
         )
 
@@ -41,8 +43,10 @@ def make_role(
         role_kind="event",
         cardinality="one",
         event_type=target,
+        required=required,
         meaning=meaning,
     )
+
 
 
 def make_semantics(
@@ -210,6 +214,24 @@ def test_temporal_scope_rejects_entity_role_boundary():
         )
 
 
+def test_temporal_scope_rejects_optional_boundary_role():
+    roles = (
+        make_role("first"),
+        make_role("middle", target="authentication_success"),
+        make_role("last", target="host_activity", required=False),
+    )
+
+    with pytest.raises(ValueError, match="required event roles"):
+        make_semantics(
+            roles=roles,
+            temporal_scope=TemporalScopeDefinition(
+                start_role="first",
+                end_role="last",
+            ),
+        )
+
+
+
 def test_temporal_scope_rejects_missing_temporal_path():
     roles = (
         make_role("first"),
@@ -226,7 +248,7 @@ def test_temporal_scope_rejects_missing_temporal_path():
         )
 
 
-def test_account_authentication_semantics_requires_temporal_scope():
+def test_semantics_does_not_hardcode_proposition_specific_scope():
     roles = (
         make_role("account", kind="entity", target="user_account"),
         make_role("failure_event"),
@@ -234,22 +256,18 @@ def test_account_authentication_semantics_requires_temporal_scope():
         make_role("host_activity_event", target="host_activity"),
     )
 
-    with pytest.raises(ValueError, match="requires a temporal scope"):
-        make_semantics(
-            proposition_type="account_authentication_sequence",
-            semantics_version=1,
-            roles=roles,
-            temporal_constraints=(
-                TemporalConstraintDefinition(
-                    earlier_role="failure_event",
-                    later_role="success_event",
-                ),
-                TemporalConstraintDefinition(
-                    earlier_role="success_event",
-                    later_role="host_activity_event",
-                ),
-            ),
-        )
+    semantics = make_semantics(
+        proposition_type="account_authentication_sequence",
+        semantics_version=1,
+        roles=roles,
+        temporal_constraints=(
+            TemporalConstraintDefinition("failure_event", "success_event"),
+            TemporalConstraintDefinition("success_event", "host_activity_event"),
+        ),
+    )
+
+    assert semantics.temporal_scope is None
+
 
 
 def test_semantics_definition_is_immutable():
@@ -266,14 +284,15 @@ def test_role_definition_is_immutable():
         role.role_name = "changed"
 
 
-def test_role_definition_requires_nonempty_meaning():
-    with pytest.raises(ValueError):
+def test_role_definition_requires_meaning_argument():
+    with pytest.raises(TypeError, match="meaning"):
         PropositionRoleDefinition(
             role_name="event",
             role_kind="event",
             cardinality="one",
             event_type="authentication_failure",
         )
+
 
 
 def test_role_definition_rejects_blank_meaning():
@@ -304,7 +323,9 @@ def test_entity_role_requires_entity_type():
             role_name="account",
             role_kind="entity",
             cardinality="one",
+            meaning="A test role.",
         )
+
 
 
 def test_entity_role_rejects_event_type():
@@ -315,7 +336,9 @@ def test_entity_role_rejects_event_type():
             cardinality="one",
             entity_type="user_account",
             event_type="authentication_failure",
+            meaning="A test role.",
         )
+
 
 
 def test_event_role_requires_event_type():
@@ -324,7 +347,9 @@ def test_event_role_requires_event_type():
             role_name="event",
             role_kind="event",
             cardinality="one",
+            meaning="A test role.",
         )
+
 
 
 def test_event_role_rejects_entity_type():
@@ -335,7 +360,9 @@ def test_event_role_rejects_entity_type():
             cardinality="one",
             event_type="authentication_failure",
             entity_type="user_account",
+            meaning="A test role.",
         )
+
 
 
 def test_unsupported_role_kind_is_rejected():
@@ -345,7 +372,9 @@ def test_unsupported_role_kind_is_rejected():
             role_kind="relationship",
             cardinality="one",
             event_type="authentication_failure",
+            meaning="A test role.",
         )
+
 
 
 def test_unsupported_cardinality_is_rejected():
@@ -355,7 +384,9 @@ def test_unsupported_cardinality_is_rejected():
             role_kind="event",
             cardinality="many",
             event_type="authentication_failure",
+            meaning="A test role.",
         )
+
 
 
 def test_required_must_be_boolean():
@@ -366,7 +397,9 @@ def test_required_must_be_boolean():
             cardinality="one",
             event_type="authentication_failure",
             required=1,
+            meaning="A test role.",
         )
+
 
 
 def test_duplicate_role_names_are_rejected():
@@ -423,6 +456,21 @@ def test_temporal_constraint_must_reference_event_roles():
         )
 
 
+def test_temporal_constraint_rejects_optional_event_role():
+    roles = (
+        make_role("required"),
+        make_role("optional", target="authentication_success", required=False),
+    )
+
+    with pytest.raises(ValueError, match="required event roles"):
+        make_semantics(
+            roles=roles,
+            temporal_constraints=(
+                TemporalConstraintDefinition("required", "optional"),
+            ),
+        )
+
+
 def test_temporal_constraint_rejects_unknown_role():
     with pytest.raises(ValueError, match="event roles"):
         make_semantics(
@@ -461,10 +509,17 @@ def test_temporal_constraints_must_have_correct_types():
         make_semantics(temporal_constraints=("constraint",))
 
 
-def test_semantics_version_must_be_positive_integer():
-    for value in (0, -1, True, 1.5):
-        with pytest.raises(ValueError):
-            make_semantics(semantics_version=value)
+@pytest.mark.parametrize("value", [True, 1.5, "1", None])
+def test_semantics_version_rejects_non_integer_types(value):
+    with pytest.raises(TypeError, match="must be an integer"):
+        make_semantics(semantics_version=value)
+
+
+@pytest.mark.parametrize("value", [0, -1])
+def test_semantics_version_must_be_positive(value):
+    with pytest.raises(ValueError, match="positive integer"):
+        make_semantics(semantics_version=value)
+
 
 
 def test_parameter_definition_accepts_string_default():
@@ -632,12 +687,21 @@ def test_registry_does_not_fall_back_to_another_version():
         registry.get("test_proposition", 2)
 
 
-def test_registry_rejects_invalid_version_lookup():
+@pytest.mark.parametrize("version", [True, 1.5, "1", None])
+def test_registry_rejects_non_integer_version_lookup(version):
     registry = PropositionSemanticsRegistry()
 
-    for version in (0, -1, True, 1.5):
-        with pytest.raises(ValueError):
-            registry.get("test_proposition", version)
+    with pytest.raises(TypeError, match="must be an integer"):
+        registry.get("test_proposition", version)
+
+
+@pytest.mark.parametrize("version", [0, -1])
+def test_registry_rejects_non_positive_version_lookup(version):
+    registry = PropositionSemanticsRegistry()
+
+    with pytest.raises(ValueError, match="positive integer"):
+        registry.get("test_proposition", version)
+
 
 
 def test_registry_contains_returns_false_for_unknown_version():
@@ -707,7 +771,7 @@ def test_acyclic_temporal_chain_is_accepted():
         lambda: PropositionRoleDefinition(
             "event",
             "event",
-            "one",
+            "one", "A test role.",
             event_type="authentication_failure",
             schema_version=True,
         ),
