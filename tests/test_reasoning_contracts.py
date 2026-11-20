@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import datetime, timezone
 from uuid import uuid4
 
@@ -720,4 +721,37 @@ def test_rule_rejects_conflicting_focal_judgments_for_same_criterion_outcome():
             bearing_definitions=(first, contradictory),
             description=original.description,
             review_status=original.review_status,
+        )
+
+
+def test_evaluation_rule_is_pinned_to_exact_semantics_fingerprint():
+    specification, _, _ = make_specification()
+    rule = specification.evaluation_rule
+    other_fingerprint = "sha256-v1:" + ("0" * 64)
+    mismatched_rule = replace(rule, semantics_fingerprint=other_fingerprint)
+
+    with pytest.raises(ValueError, match="exact proposition semantics"):
+        mismatched_rule.validate_for(
+            specification.hypothesis.proposition,
+            production=False,
+        )
+
+
+def test_hypothesis_specification_rejects_alternative_with_different_fingerprint():
+    specification, _, alternative = make_specification()
+    other_fingerprint = "sha256-v1:" + ("0" * 64)
+    mismatched_proposition = replace(
+        alternative.proposition,
+        semantics_fingerprint=other_fingerprint,
+    )
+    mismatched_alternative = replace(
+        alternative,
+        proposition=mismatched_proposition,
+    )
+
+    with pytest.raises(ValueError, match="focal proposition semantics"):
+        HypothesisSpecification(
+            hypothesis=specification.hypothesis,
+            alternatives=(mismatched_alternative,),
+            evaluation_rule=specification.evaluation_rule,
         )
