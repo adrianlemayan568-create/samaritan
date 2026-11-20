@@ -333,7 +333,12 @@ class PropositionConstructor:
             construction_version=construction.construction_version,
             parameters_json=parameters_json,
         )
-        proposition.validate_against(semantics)
+        try:
+            proposition.validate_against(semantics)
+        except (TypeError, ValueError) as exc:
+            raise PropositionConstructionError(
+                f"constructed proposition failed semantic validation: {exc}"
+            ) from exc
         return proposition
 
     def _load_relationships(
