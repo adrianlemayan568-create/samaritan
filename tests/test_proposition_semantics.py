@@ -810,3 +810,31 @@ def test_semantics_description_rejects_surrounding_whitespace():
             roles=(make_role(),),
             description=" invalid ",
         )
+
+
+def test_default_authentication_sequence_limits_each_temporal_gap_to_five_minutes():
+    semantics = build_default_proposition_semantics_registry().get(
+        "account_authentication_sequence", 1
+    )
+    assert [item.max_interval_seconds for item in semantics.temporal_constraints] == [
+        300,
+        300,
+    ]
+
+
+def test_temporal_constraint_rejects_non_positive_interval_limit():
+    with pytest.raises(ValueError, match="positive"):
+        TemporalConstraintDefinition(
+            "first",
+            "second",
+            max_interval_seconds=0,
+        )
+
+
+def test_temporal_constraint_requires_integer_interval_limit():
+    with pytest.raises(TypeError, match="integer"):
+        TemporalConstraintDefinition(
+            "first",
+            "second",
+            max_interval_seconds=1.5,
+        )

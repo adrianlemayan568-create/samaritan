@@ -1,6 +1,6 @@
 # Architecture Notes
 
-## Initial architecture
+## Architecture
 
 Samaritan begins as a modular monolith running locally.
 
@@ -13,20 +13,26 @@ Initial technology:
 
 1. Perception — acquire, validate, and normalize authorized information.
 2. Memory — preserve observations, entities, events, and relationships.
-3. Reasoning — correlate evidence and evaluate hypotheses.
-4. Prediction — produce measurable forecasts with uncertainty.
-5. Decision — prioritize risks and recommend responses.
+3. Reasoning — construct structured propositions, evaluate evidence, and compare explanations.
+4. Prediction — estimate probabilities only after deterministic evidence evaluation is trustworthy.
+5. Decision — prioritize risks and recommend responses under explicit governance.
 6. Controlled action — execute only permissioned and auditable operations.
 7. Adaptation — evaluate outcomes and improve analytical quality.
 
-These are logical boundaries, not separate services. We will implement
-them incrementally as the project earns the complexity.
+These are logical boundaries, not separate services. Implement them incrementally as the project earns the complexity.
 
-## First implementation milestone
+## Evidence and reasoning pipeline
 
-Build a synthetic cybersecurity telemetry pipeline:
+The current analytical boundary is:
 
-JSON/JSONL -> validation -> normalization -> SQLite -> retrieval
+JSON/JSONL -> validation -> normalization -> SQLite -> retrieval -> correlation -> hypothesis generation -> EvidenceSet -> deterministic proposition construction -> deterministic criterion evaluation -> stance-neutral findings -> alternative-aware diagnosticity synthesis
 
-The pipeline must preserve original source information and must not
-silently discard legitimate repeated events.
+M2.4 keeps proposition semantics separate from construction definitions. Semantics define what proposition fields mean and what makes a proposition valid. Construction definitions bind those fields to registered source structures. Every constructed field retains provenance.
+
+Criterion findings are stance-neutral and reusable. Versioned bearing definitions interpret findings against a focal proposition and each declared alternative. Diagnosticity synthesis is ordinal and deterministic; it does not calculate probabilities.
+
+No analytical persistence migration is introduced until these contracts stabilize. See m2.4-analytical-foundation.md for the complete model and limitations.
+
+## Evidence integrity
+
+The pipeline must preserve original source information, validate references, reject ambiguous construction, and never silently discard legitimate repeated events. Shared identifiers do not establish common actors, ownership, authorization, or malicious intent.

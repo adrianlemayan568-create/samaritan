@@ -602,6 +602,53 @@ class Repository:
         )
 
 
+    def list_relationships(
+        self,
+        observation_id: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> tuple[Relationship, ...]:
+        """List explicit relationships in stable observation-time order."""
+        self._validate_pagination(limit, offset)
+        if observation_id is not None:
+            observation_id = validate_id(observation_id, "observation_id")
+
+        query = """
+            SELECT
+                relationship_id,
+                source_entity_id,
+                target_entity_id,
+                relationship_type,
+                observation_id,
+                observed_at,
+                attributes_json,
+                schema_version
+            FROM relationships
+        """
+        parameters: list[object] = []
+        if observation_id is not None:
+            query += " WHERE observation_id = ?"
+            parameters.append(observation_id)
+        query += " ORDER BY observed_at, relationship_id LIMIT ? OFFSET ?"
+        parameters.extend((limit, offset))
+
+        with self.database.connection() as connection:
+            rows = connection.execute(query, parameters).fetchall()
+
+        return tuple(
+            Relationship(
+                relationship_id=row["relationship_id"],
+                source_entity_id=row["source_entity_id"],
+                target_entity_id=row["target_entity_id"],
+                relationship_type=row["relationship_type"],
+                observation_id=row["observation_id"],
+                observed_at=parse_timestamp(row["observed_at"], "observed_at"),
+                attributes_json=row["attributes_json"],
+                schema_version=row["schema_version"],
+            )
+            for row in rows
+        )
+
     def get_entities_by_ids(
         self,
         entity_ids: Iterable[str],

@@ -92,6 +92,7 @@ class TemporalConstraintDefinition:
     later_role: str
     relation: str = "precedes"
     schema_version: int = SCHEMA_VERSION
+    max_interval_seconds: int | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -109,6 +110,11 @@ class TemporalConstraintDefinition:
 
         if self.relation not in TEMPORAL_RELATIONS:
             raise ValueError("unsupported temporal relation")
+        if self.max_interval_seconds is not None:
+            if type(self.max_interval_seconds) is not int:
+                raise TypeError("max_interval_seconds must be an integer or None")
+            if self.max_interval_seconds <= 0:
+                raise ValueError("max_interval_seconds must be positive")
 
         _validate_schema_version(
             self.schema_version, "temporal constraint schema version"
@@ -156,6 +162,7 @@ class SemanticParameterDefinition:
     required: bool = False
     default_value: str | int | bool | None = None
     schema_version: int = SCHEMA_VERSION
+    meaning: str = ""
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -175,6 +182,11 @@ class SemanticParameterDefinition:
 
         if self.required and self.default_value is not None:
             raise ValueError("required parameters cannot have a default value")
+
+        if not isinstance(self.meaning, str):
+            raise TypeError("meaning must be a string")
+        if self.meaning:
+            object.__setattr__(self, "meaning", validate_text(self.meaning, "meaning"))
 
         if self.default_value is not None:
             if self.value_type == "string":
@@ -372,6 +384,8 @@ class PropositionSemantics:
         parameter_names = [item.parameter_name for item in self.parameters]
         if len(parameter_names) != len(set(parameter_names)):
             raise ValueError("semantic parameter names must be unique")
+        if set(role_names) & set(parameter_names):
+            raise ValueError("semantic role and parameter names must be distinct")
 
         _validate_schema_version(
             self.schema_version, "proposition semantics schema version"
@@ -482,10 +496,12 @@ def build_default_proposition_semantics_registry() -> PropositionSemanticsRegist
                 TemporalConstraintDefinition(
                     earlier_role="failure_event",
                     later_role="success_event",
+                    max_interval_seconds=300,
                 ),
                 TemporalConstraintDefinition(
                     earlier_role="success_event",
                     later_role="host_activity_event",
+                    max_interval_seconds=300,
                 ),
             ),
             temporal_scope=TemporalScopeDefinition(

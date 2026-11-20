@@ -1,0 +1,303 @@
+from datetime import datetime, timezone
+
+from samaritan.analysis_contracts import EvidenceReference
+from samaritan.criterion_evaluation import CriterionEvaluationEngine
+from samaritan.hypothesis_evaluation import HypothesisEvaluationEngine
+from samaritan.contracts import (
+    Event,
+    Observation,
+    Source,
+    new_id,
+    payload_checksum,
+)
+from samaritan.database import Database
+from samaritan.evaluation_contracts import EvidenceSet
+from samaritan.proposition_contracts import (
+    Proposition,
+    PropositionFieldProvenance,
+    PropositionRoleValue,
+    PropositionTemporalScope,
+    StructuredHypothesis,
+    deterministic_proposition_id,
+)
+from samaritan.reasoning_contracts import (
+    CriterionDefinition,
+    CriterionEvaluatorDefinition,
+    CriterionEvaluatorRegistry,
+    CriterionOutcomeDefinition,
+    CriterionOutcomeRegistry,
+    CriterionParameterDefinition,
+    BearingDefinition,
+    HypothesisAlternative,
+    HypothesisEvaluationRule,
+    HypothesisSpecification,
+    RESIDUAL_ALTERNATIVE_ID,
+)
+from samaritan.repository import Repository
+
+
+def make_evaluation_context(tmp_path):
+    database = Database(tmp_path / "criterion.db")
+    database.initialize()
+    repository = Repository(database)
+    now = datetime(2026, 11, 20, 10, 0, tzinfo=timezone.utc)
+    source = Source(
+        source_id=new_id(),
+        source_type="synthetic",
+        name="criterion evaluator test",
+        created_at=now,
+    )
+    repository.register_source(source)
+    observation = Observation(
+        observation_id=new_id(),
+        source_id=source.source_id,
+        received_at=now,
+        raw_payload="{}",
+        payload_sha256=payload_checksum("{}"),
+    )
+    event = Event(
+        event_id=new_id(),
+        observation_id=observation.observation_id,
+        event_type="authentication_success",
+        occurred_at=now,
+        original_timestamp="2026-11-20T10:00:00Z",
+        normalized_data_json='{"result":"success"}',
+        participants=(),
+    )
+    repository.persist_observation(observation, events=(event,))
+    proposition = Proposition(
+        proposition_id=new_id(),
+        proposition_type="test_authentication",
+        semantics_version=1,
+        roles=(
+            PropositionRoleValue(
+                "success_event", "event", event.event_id, event.occurred_at
+            ),
+        ),
+        temporal_scope=PropositionTemporalScope(now, now),
+        field_provenance=(
+            PropositionFieldProvenance(
+                "success_event",
+                (event.event_id,),
+                (observation.observation_id,),
+            ),
+        ),
+        construction_id="test-construction",
+        construction_version=1,
+    )
+    evidence_set = EvidenceSet(
+        evidence_set_id=new_id(),
+        evidence=(EvidenceReference(event_id=event.event_id),),
+        created_at=now,
+    )
+    return repository, proposition, evidence_set, event
+
+
+def test_registered_event_attribute_evaluator_returns_stance_neutral_finding(tmp_path):
+    repository, proposition, evidence_set, event = make_evaluation_context(tmp_path)
+    parameters = (
+        CriterionParameterDefinition("event_role", "string", required=True),
+        CriterionParameterDefinition("attribute_name", "string", required=True),
+        CriterionParameterDefinition("expected_value", "string", required=True),
+    )
+    criterion = CriterionDefinition(
+        criterion_id="authentication-result",
+        criterion_type="authentication_result",
+        parameters_json='{"event_role":"success_event","attribute_name":"result","expected_value":"success"}',
+        description="The normalized authentication result equals the registered expected value.",
+        independence_group="authentication-event",
+        parameter_definitions=parameters,
+    )
+    evaluators = CriterionEvaluatorRegistry()
+    evaluators.register(
+        CriterionEvaluatorDefinition(
+            criterion_type=criterion.criterion_type,
+            evaluator_version=1,
+            evaluator_type="event_attribute_equals",
+            parameter_definitions=parameters,
+            description="Compare one registered normalized event attribute to a typed expected value.",
+        )
+    )
+    outcomes = CriterionOutcomeRegistry()
+    outcomes.register(CriterionOutcomeDefinition(
+        criterion_type=criterion.criterion_type,
+        outcome_code="equal",
+        meaning="The event attribute equals the expected value.",
+    ))
+    outcomes.register(CriterionOutcomeDefinition(
+        criterion_type=criterion.criterion_type,
+        outcome_code="not_equal",
+        meaning="The event attribute differs from the expected value or is absent.",
+    ))
+    finding = CriterionEvaluationEngine(repository, evaluators, outcomes).evaluate(
+        criterion, proposition, evidence_set
+    )
+    assert finding.status == "matched"
+    assert finding.outcome_code == "equal"
+    assert finding.evidence == (
+        EvidenceReference(event_id=event.event_id),
+        EvidenceReference(observation_id=event.observation_id),
+    )
+    assert not hasattr(finding, "stance")
+
+
+def test_evaluator_registry_rejects_arbitrary_evaluator_callbacks():
+    import pytest
+
+    with pytest.raises(ValueError, match="unsupported built-in"):
+        CriterionEvaluatorDefinition(
+            criterion_type="custom",
+            evaluator_version=1,
+            evaluator_type="arbitrary_python_callback",
+            parameter_definitions=(),
+            description="Must not accept arbitrary callback execution.",
+        )
+
+
+
+def test_hypothesis_evaluation_engine_runs_findings_and_synthesis_end_to_end(tmp_path):
+    repository, proposition, evidence_set, event = make_evaluation_context(tmp_path)
+    parameter_definitions = (
+        CriterionParameterDefinition("event_role", "string", required=True),
+        CriterionParameterDefinition("attribute_name", "string", required=True),
+        CriterionParameterDefinition("expected_value", "string", required=True),
+    )
+    criterion = CriterionDefinition(
+        criterion_id="authentication-result",
+        criterion_type="authentication_result",
+        parameters_json='{"event_role":"success_event","attribute_name":"result","expected_value":"success"}',
+        description="The normalized authentication result equals the registered expected value.",
+        independence_group="authentication-event",
+        parameter_definitions=parameter_definitions,
+    )
+    evaluators = CriterionEvaluatorRegistry()
+    evaluators.register(CriterionEvaluatorDefinition(
+        criterion_type=criterion.criterion_type,
+        evaluator_version=1,
+        evaluator_type="event_attribute_equals",
+        parameter_definitions=parameter_definitions,
+        description="Compare a registered normalized event attribute with its expected value.",
+    ))
+    outcomes = CriterionOutcomeRegistry()
+    outcomes.register(CriterionOutcomeDefinition(
+        criterion_type=criterion.criterion_type,
+        outcome_code="equal",
+        meaning="The event attribute equals the expected value.",
+    ))
+    outcomes.register(CriterionOutcomeDefinition(
+        criterion_type=criterion.criterion_type,
+        outcome_code="not_equal",
+        meaning="The event attribute differs from the expected value.",
+    ))
+
+    alternative_event_id = new_id()
+    alternative_observation_id = new_id()
+    alternative_roles = (
+        PropositionRoleValue(
+            "success_event", "event", alternative_event_id, event.occurred_at
+        ),
+    )
+    alternative_scope = proposition.temporal_scope
+    alternative_provenance = (
+        PropositionFieldProvenance(
+            "success_event",
+            (alternative_event_id,),
+            (alternative_observation_id,),
+        ),
+    )
+    alternative_proposition = Proposition(
+        proposition_id=deterministic_proposition_id(
+            proposition.proposition_type,
+            proposition.semantics_version,
+            alternative_roles,
+            alternative_scope,
+        ),
+        proposition_type=proposition.proposition_type,
+        semantics_version=proposition.semantics_version,
+        roles=alternative_roles,
+        temporal_scope=alternative_scope,
+        field_provenance=alternative_provenance,
+        construction_id=proposition.construction_id,
+        construction_version=proposition.construction_version,
+    )
+    alternative = HypothesisAlternative(
+        alternative_id=new_id(),
+        proposition=alternative_proposition,
+        description="The successful authentication had a different recorded outcome.",
+    )
+    bearings = (
+        BearingDefinition(
+            criterion_id=criterion.criterion_id,
+            outcome_code="equal",
+            alternative_id=alternative.alternative_id,
+            focal_judgment="expected",
+            alternative_judgment="unexpected",
+            evaluability_role="required",
+            rationale="The observed value is expected under the focal proposition.",
+            basis="Validated normalized event attribute.",
+            author="analyst",
+            review_status="approved",
+        ),
+        BearingDefinition(
+            criterion_id=criterion.criterion_id,
+            outcome_code="equal",
+            alternative_id=RESIDUAL_ALTERNATIVE_ID,
+            focal_judgment="expected",
+            alternative_judgment="compatible",
+            evaluability_role="contextual",
+            rationale="The residual remains broadly compatible.",
+            basis="Residual explanation is not excluded.",
+            author="analyst",
+            review_status="approved",
+        ),
+        BearingDefinition(
+            criterion_id=criterion.criterion_id,
+            outcome_code="not_equal",
+            alternative_id=alternative.alternative_id,
+            focal_judgment="incompatible",
+            alternative_judgment="expected",
+            evaluability_role="required",
+            rationale="The observed value contradicts the focal proposition.",
+            basis="Validated normalized event attribute.",
+            author="analyst",
+            review_status="approved",
+        ),
+        BearingDefinition(
+            criterion_id=criterion.criterion_id,
+            outcome_code="not_equal",
+            alternative_id=RESIDUAL_ALTERNATIVE_ID,
+            focal_judgment="unexpected",
+            alternative_judgment="compatible",
+            evaluability_role="contextual",
+            rationale="The residual remains broadly compatible.",
+            basis="Residual explanation is not excluded.",
+            author="analyst",
+            review_status="approved",
+        ),
+    )
+    rule = HypothesisEvaluationRule(
+        evaluation_rule_id="test-authentication-rule-v1",
+        rule_version=1,
+        proposition_type=proposition.proposition_type,
+        semantics_version=proposition.semantics_version,
+        criterion_definitions=(criterion,),
+        bearing_definitions=bearings,
+        description="Evaluate the normalized authentication result.",
+        review_status="approved",
+    )
+    specification = HypothesisSpecification(
+        hypothesis=StructuredHypothesis(
+            hypothesis_id=new_id(),
+            proposition=proposition,
+            created_at=datetime.now(timezone.utc),
+        ),
+        alternatives=(alternative,),
+        evaluation_rule=rule,
+    )
+    record = HypothesisEvaluationEngine(
+        repository, evaluators, outcomes
+    ).evaluate(specification, evidence_set)
+    assert record.evaluation_rule_id == rule.evaluation_rule_id
+    assert record.evidence_set_id == evidence_set.evidence_set_id
+    assert record.findings[0].status == "matched"
+    assert record.synthesis.outcome == "supported"
