@@ -1035,6 +1035,8 @@ def test_provenance_validator_rejects_populated_optional_role_without_binding(tm
             roles,
             proposition.temporal_scope,
             proposition.parameters_json,
+            semantics_fingerprint=proposition.semantics_fingerprint,
+            identity_algorithm_version=proposition.identity_algorithm_version,
         ),
         roles=roles,
         field_provenance=field_provenance,
