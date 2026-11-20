@@ -142,10 +142,6 @@ class Proposition:
                 raise ValueError(
                     f"entity role provenance must identify its supporting events: {role.role_name}"
                 )
-            elif len(source.event_ids) != len(source.observation_ids):
-                raise ValueError(
-                    f"entity role event and observation provenance must correspond: {role.role_name}"
-                )
         object.__setattr__(self, "construction_id", validate_text(self.construction_id, "construction_id"))
         if type(self.construction_version) is not int or self.construction_version < 1:
             raise ValueError("construction_version must be a positive integer")
