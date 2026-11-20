@@ -684,7 +684,7 @@ def test_rule_rejects_conflicting_focal_judgments_for_same_criterion_outcome():
     contradictory = BearingDefinition(
         criterion_id=second.criterion_id,
         outcome_code=second.outcome_code,
-        alternative_id=second.alternative_id,
+        alternative_id="another-explicit-alternative",
         focal_judgment="incompatible",
         alternative_judgment=second.alternative_judgment,
         evaluability_role=second.evaluability_role,
