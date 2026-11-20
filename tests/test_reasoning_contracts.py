@@ -717,6 +717,7 @@ def test_rule_rejects_conflicting_focal_judgments_for_same_criterion_outcome():
             rule_version=original.rule_version,
             proposition_type=original.proposition_type,
             semantics_version=original.semantics_version,
+            semantics_fingerprint=original.semantics_fingerprint,
             criterion_definitions=original.criterion_definitions,
             bearing_definitions=(first, contradictory),
             description=original.description,
