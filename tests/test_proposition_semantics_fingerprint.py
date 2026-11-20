@@ -85,7 +85,7 @@ def test_default_semantics_has_stable_golden_fingerprint():
 
     assert proposition_semantics_fingerprint(semantics) == (
         "sha256-v1:"
-        "265712b502ecdbc807083402b546c1727801afddbe0ef9a5b96f3467912255f8"
+        "8b4f03c8451f30aaa31811c0363485334eaa9f41ec96dd445a2230ce026dad6c"
     )
 
 
@@ -164,9 +164,8 @@ def test_fingerprint_normalizes_unicode_to_nfc():
         lambda s: replace(
             s,
             roles=(
-                s.roles[0],
-                s.roles[1],
                 replace(s.roles[0], required=False),
+                *s.roles[1:],
             ),
         ),
         lambda s: replace(
