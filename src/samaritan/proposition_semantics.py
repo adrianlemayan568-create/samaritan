@@ -292,6 +292,13 @@ class PropositionSemantics:
             if item.role_kind == "event"
         }
         event_role_names = set(event_roles)
+        required_event_role_names = {
+            name for name, role in event_roles.items() if role.required
+        }
+        if self.temporal_scope is None and not required_event_role_names:
+            raise ValueError(
+                "semantics without an explicit temporal scope must declare at least one required event role"
+            )
 
         constraint_pairs = set()
         for constraint in self.temporal_constraints:
