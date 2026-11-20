@@ -76,26 +76,38 @@ class PropositionConstructor:
             item.semantic_role: item for item in construction.entity_bindings
         }
         semantic_roles = {item.role_name: item for item in semantics.roles}
-        if set(event_definitions) != {
-            name for name, role in semantic_roles.items() if role.role_kind == "event" and role.required
-        }:
+        required_event_roles = {
+            name for name, role in semantic_roles.items()
+            if role.role_kind == "event" and role.required
+        }
+        required_entity_roles = {
+            name for name, role in semantic_roles.items()
+            if role.role_kind == "entity" and role.required
+        }
+        if not required_event_roles.issubset(event_definitions):
             raise PropositionConstructionError(
-                "construction event bindings must cover every required semantic event role exactly"
+                "construction event bindings must cover every required semantic event role"
             )
-        if set(entity_definitions) != {
-            name for name, role in semantic_roles.items() if role.role_kind == "entity" and role.required
-        }:
+        if not required_entity_roles.issubset(entity_definitions):
             raise PropositionConstructionError(
-                "construction entity bindings must cover every required semantic entity role exactly"
+                "construction entity bindings must cover every required semantic entity role"
             )
         for name, binding in event_definitions.items():
-            if semantic_roles[name].event_type != binding.event_type:
+            role = semantic_roles.get(name)
+            if role is None or role.role_kind != "event":
+                raise PropositionConstructionError(
+                    f"event binding references an undeclared event role: {name}"
+                )
+            if role.event_type != binding.event_type:
                 raise PropositionConstructionError(
                     f"event binding type conflicts with semantics for {name}"
                 )
         for name in entity_definitions:
-            if semantic_roles[name].entity_type is None:
-                raise PropositionConstructionError(f"entity role {name} has no declared entity type")
+            role = semantic_roles.get(name)
+            if role is None or role.role_kind != "entity" or role.entity_type is None:
+                raise PropositionConstructionError(
+                    f"entity binding references an undeclared entity role: {name}"
+                )
 
         parameter_definitions = {item.parameter_name: item for item in semantics.parameters}
         parameter_bindings = (
@@ -125,10 +137,16 @@ class PropositionConstructor:
         selected_events: dict[str, Event] = {}
         for role_name, binding in event_definitions.items():
             matches = [event for event in events.values() if event.event_type == binding.event_type]
-            if len(matches) != 1:
+            if len(matches) > 1:
                 raise PropositionConstructionError(
-                    f"expected exactly one {binding.event_type} event for {role_name}; found {len(matches)}"
+                    f"expected at most one {binding.event_type} event for {role_name}; found {len(matches)}"
                 )
+            if not matches:
+                if semantic_roles[role_name].required:
+                    raise PropositionConstructionError(
+                        f"expected exactly one {binding.event_type} event for {role_name}; found 0"
+                    )
+                continue
             selected_events[role_name] = matches[0]
 
         role_values: dict[str, PropositionRoleValue] = {}
@@ -150,8 +168,12 @@ class PropositionConstructor:
         participant_matches: dict[str, list[str]] = {}
         for entity_role, binding in entity_definitions.items():
             resolved_ids: list[str] = []
+            missing_dependency = False
             for participant_binding in binding.participant_bindings:
-                event = selected_events[participant_binding.event_role]
+                event = selected_events.get(participant_binding.event_role)
+                if event is None:
+                    missing_dependency = True
+                    break
                 matches = [
                     participant.entity_id
                     for participant in event.participants
@@ -165,6 +187,12 @@ class PropositionConstructor:
                     )
                 resolved_ids.append(matches[0])
                 participant_entity_ids.add(matches[0])
+            if missing_dependency:
+                if semantic_roles[entity_role].required:
+                    raise PropositionConstructionError(
+                        f"required entity role {entity_role} depends on an absent optional event role"
+                    )
+                continue
             if len(set(resolved_ids)) != 1:
                 raise PropositionConstructionError(
                     f"entity role {entity_role} resolves to different entities across source events"
@@ -209,6 +237,10 @@ class PropositionConstructor:
             start_inclusive = scope_definition.start_inclusive
             end_inclusive = scope_definition.end_inclusive
         else:
+            if not event_times:
+                raise PropositionConstructionError(
+                    "at least one event role must be populated to establish temporal scope"
+                )
             starts_at = min(event_times.values())
             ends_at = max(event_times.values())
             start_inclusive = end_inclusive = True
@@ -236,7 +268,13 @@ class PropositionConstructor:
             if item.default_value is not None
         }
         for binding in construction.event_attribute_bindings:
-            event = selected_events[binding.event_role]
+            event = selected_events.get(binding.event_role)
+            if event is None:
+                if parameter_definitions[binding.parameter_name].required:
+                    raise PropositionConstructionError(
+                        f"required parameter {binding.parameter_name} depends on an absent optional event role"
+                    )
+                continue
             attributes = json.loads(event.normalized_data_json)
             if binding.attribute_name not in attributes:
                 raise PropositionConstructionError(
@@ -261,8 +299,14 @@ class PropositionConstructor:
             )
 
         for binding in construction.temporal_parameter_bindings:
-            earlier = selected_events[binding.earlier_event_role]
-            later = selected_events[binding.later_event_role]
+            earlier = selected_events.get(binding.earlier_event_role)
+            later = selected_events.get(binding.later_event_role)
+            if earlier is None or later is None:
+                if parameter_definitions[binding.parameter_name].required:
+                    raise PropositionConstructionError(
+                        f"required parameter {binding.parameter_name} depends on an absent optional event role"
+                    )
+                continue
             seconds = (later.occurred_at - earlier.occurred_at).total_seconds()
             if seconds < 0 or not seconds.is_integer():
                 raise PropositionConstructionError(
@@ -278,18 +322,32 @@ class PropositionConstructor:
         if construction.relationship_parameter_bindings:
             relationships = self._load_relationships(observations)
             for binding in construction.relationship_parameter_bindings:
-                source_id = role_values[binding.source_entity_role].value_id
-                target_id = role_values[binding.target_entity_role].value_id
+                source_role = role_values.get(binding.source_entity_role)
+                target_role = role_values.get(binding.target_entity_role)
+                if source_role is None or target_role is None:
+                    if parameter_definitions[binding.parameter_name].required:
+                        raise PropositionConstructionError(
+                            f"required parameter {binding.parameter_name} depends on an absent optional entity role"
+                        )
+                    continue
+                source_id = source_role.value_id
+                target_id = target_role.value_id
                 matches = [
                     item for item in relationships
                     if item.relationship_type == binding.relationship_type
                     and item.source_entity_id == source_id
                     and item.target_entity_id == target_id
                 ]
-                if len(matches) != 1:
+                if len(matches) > 1:
                     raise PropositionConstructionError(
-                        f"expected exactly one relationship of type {binding.relationship_type}; found {len(matches)}"
+                        f"expected at most one relationship of type {binding.relationship_type}; found {len(matches)}"
                     )
+                if not matches:
+                    if parameter_definitions[binding.parameter_name].required:
+                        raise PropositionConstructionError(
+                            f"expected exactly one relationship of type {binding.relationship_type}; found 0"
+                        )
+                    continue
                 relationship = matches[0]
                 if binding.relationship_field == "relationship_id":
                     value = relationship.relationship_id
