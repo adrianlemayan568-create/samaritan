@@ -43,7 +43,7 @@ def make_semantics():
                 role_kind="event",
                 cardinality="one",
                 event_type="authentication_success",
-                required=False,
+                required=True,
                 meaning="The subsequent successful authentication.",
             ),
         ),
@@ -166,7 +166,7 @@ def test_fingerprint_normalizes_unicode_to_nfc():
             roles=(
                 s.roles[0],
                 s.roles[1],
-                replace(s.roles[2], required=True),
+                replace(s.roles[0], required=False),
             ),
         ),
         lambda s: replace(
