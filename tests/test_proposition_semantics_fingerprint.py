@@ -226,3 +226,30 @@ def test_canonical_payload_includes_all_definition_schema_versions():
 def test_fingerprint_rejects_non_semantics_input():
     with pytest.raises(TypeError, match="PropositionSemantics"):
         proposition_semantics_fingerprint("not semantics")
+
+
+
+def test_fingerprint_rejects_role_names_colliding_after_unicode_normalization():
+    semantics = PropositionSemantics(
+        proposition_type="unicode_names",
+        semantics_version=1,
+        roles=(
+            PropositionRoleDefinition(
+                role_name="Café",
+                role_kind="event",
+                cardinality="one",
+                event_type="authentication_failure",
+                meaning="First event.",
+            ),
+            PropositionRoleDefinition(
+                role_name="Cafe\u0301",
+                role_kind="event",
+                cardinality="one",
+                event_type="authentication_success",
+                meaning="Second event.",
+            ),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="collide after Unicode NFC"):
+        proposition_semantics_fingerprint(semantics)
