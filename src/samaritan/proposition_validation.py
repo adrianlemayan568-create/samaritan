@@ -116,6 +116,11 @@ class PropositionProvenanceValidator:
 
         event_bindings = {item.semantic_role: item for item in construction.event_bindings}
         entity_bindings = {item.semantic_role: item for item in construction.entity_bindings}
+        bound_role_names = set(event_bindings) | set(entity_bindings)
+        if set(roles) != bound_role_names:
+            raise PropositionProvenanceError(
+                "proposition roles must match the exact registered construction bindings"
+            )
 
         for role_name, binding in event_bindings.items():
             role = roles.get(role_name)
