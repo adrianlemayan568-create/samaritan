@@ -428,11 +428,14 @@ class HypothesisEvaluationRule:
                 raise ValueError("approved rules require approved bearing definitions")
         focal_judgments: dict[tuple[str, str], str] = {}
         for bearing in self.bearing_definitions:
+            if bearing.alternative_id == RESIDUAL_ALTERNATIVE_ID:
+                continue
             key = (bearing.criterion_id, bearing.outcome_code)
             previous = focal_judgments.setdefault(key, bearing.focal_judgment)
             if previous != bearing.focal_judgment:
                 raise ValueError(
-                    "focal judgment must be consistent across alternatives for each criterion outcome"
+                    "focal judgment must be consistent across declared alternatives "
+                    "for each criterion outcome"
                 )
         keys = tuple((item.criterion_id, item.outcome_code, item.alternative_id) for item in self.bearing_definitions)
         if len(keys) != len(set(keys)):
