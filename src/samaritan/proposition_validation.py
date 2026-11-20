@@ -296,9 +296,41 @@ class PropositionProvenanceValidator:
             target_id = target_role.value_id
             source = provenance.get(binding.parameter_name)
             if source is None:
-                raise PropositionProvenanceError(
-                    f"bound relationship parameter has no provenance: {binding.parameter_name}"
-                )
+                definition = parameter_definitions[binding.parameter_name]
+                value_present = binding.parameter_name in parameters
+                if definition.required or (
+                    value_present and parameters[binding.parameter_name] != definition.default_value
+                ):
+                    raise PropositionProvenanceError(
+                        f"bound relationship parameter has no provenance: {binding.parameter_name}"
+                    )
+                candidate_matches: list[Relationship] = []
+                for observation_id in observations:
+                    offset = 0
+                    while True:
+                        batch = self.repository.list_relationships(
+                            observation_id=observation_id, limit=500, offset=offset
+                        )
+                        if not isinstance(batch, tuple) or not all(
+                            isinstance(item, Relationship) for item in batch
+                        ):
+                            raise PropositionProvenanceError(
+                                "repository returned invalid relationship records"
+                            )
+                        candidate_matches.extend(
+                            item for item in batch
+                            if item.source_entity_id == source_id
+                            and item.target_entity_id == target_id
+                            and item.relationship_type == binding.relationship_type
+                        )
+                        if len(batch) < 500:
+                            break
+                        offset += 500
+                if candidate_matches:
+                    raise PropositionProvenanceError(
+                        f"optional relationship parameter omitted despite matching source: {binding.parameter_name}"
+                    )
+                continue
             matches: list[Relationship] = []
             for observation_id in source.observation_ids:
                 offset = 0
