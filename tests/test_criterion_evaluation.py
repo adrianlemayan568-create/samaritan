@@ -301,3 +301,37 @@ def test_hypothesis_evaluation_engine_runs_findings_and_synthesis_end_to_end(tmp
     assert record.evidence_set_id == evidence_set.evidence_set_id
     assert record.findings[0].status == "matched"
     assert record.synthesis.outcome == "supported"
+
+
+
+def test_missing_registered_attribute_is_insufficient_not_a_negative_finding(tmp_path):
+    import pytest
+
+    repository, proposition, evidence_set, _ = make_evaluation_context(tmp_path)
+    parameters = (
+        CriterionParameterDefinition("event_role", "string", required=True),
+        CriterionParameterDefinition("attribute_name", "string", required=True),
+    )
+    criterion = CriterionDefinition(
+        criterion_id="missing-context-attribute",
+        criterion_type="context_attribute",
+        parameters_json='{"event_role":"success_event","attribute_name":"device_fingerprint"}',
+        description="Check whether the normalized event records a device fingerprint.",
+        independence_group="authentication-event",
+        parameter_definitions=parameters,
+    )
+    evaluators = CriterionEvaluatorRegistry()
+    evaluators.register(CriterionEvaluatorDefinition(
+        criterion_type=criterion.criterion_type,
+        evaluator_version=1,
+        evaluator_type="event_attribute_present",
+        parameter_definitions=parameters,
+        description="Check for a registered normalized event attribute.",
+    ))
+    finding = CriterionEvaluationEngine(
+        repository, evaluators, CriterionOutcomeRegistry()
+    ).evaluate(criterion, proposition, evidence_set)
+
+    assert finding.status == "insufficient"
+    assert finding.outcome_code is None
+    assert "coverage" in finding.missing_information[0].lower()
