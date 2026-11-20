@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
@@ -50,6 +51,8 @@ def make_proposition():
         field_provenance=provenance,
         construction_id="account_authentication_sequence",
         construction_version=1,
+        semantics_fingerprint=proposition.semantics_fingerprint,
+        identity_algorithm_version=proposition.identity_algorithm_version,
         semantics_fingerprint=semantics_fingerprint,
         identity_algorithm_version="uuid5-v2",
     )
@@ -97,6 +100,8 @@ def test_temporal_scope_must_match_semantic_boundaries():
         construction_version=1,
         semantics_fingerprint=proposition.semantics_fingerprint,
         identity_algorithm_version=proposition.identity_algorithm_version,
+        semantics_fingerprint=proposition.semantics_fingerprint,
+        identity_algorithm_version=proposition.identity_algorithm_version,
     )
     semantics = build_default_proposition_semantics_registry().get(
         "account_authentication_sequence", 1
@@ -129,6 +134,8 @@ def test_required_temporal_interval_is_enforced():
         field_provenance=proposition.field_provenance,
         construction_id=proposition.construction_id,
         construction_version=1,
+        semantics_fingerprint=proposition.semantics_fingerprint,
+        identity_algorithm_version=proposition.identity_algorithm_version,
     )
     semantics = build_default_proposition_semantics_registry().get(
         "account_authentication_sequence", 1
@@ -149,6 +156,8 @@ def test_every_role_requires_field_level_provenance():
             field_provenance=proposition.field_provenance[:-1],
             construction_id=proposition.construction_id,
             construction_version=1,
+        semantics_fingerprint=proposition.semantics_fingerprint,
+        identity_algorithm_version=proposition.identity_algorithm_version,
         )
 
 def test_proposition_identity_must_match_semantic_content():
@@ -162,6 +171,8 @@ def test_proposition_identity_must_match_semantic_content():
         field_provenance=proposition.field_provenance,
         construction_id=proposition.construction_id,
         construction_version=proposition.construction_version,
+        semantics_fingerprint=proposition.semantics_fingerprint,
+        identity_algorithm_version=proposition.identity_algorithm_version,
         semantics_fingerprint=proposition.semantics_fingerprint,
         identity_algorithm_version=proposition.identity_algorithm_version,
     )
@@ -193,5 +204,77 @@ def test_event_role_provenance_must_name_the_role_event():
             field_provenance=invalid_provenance,
             construction_id=proposition.construction_id,
             construction_version=proposition.construction_version,
+        semantics_fingerprint=proposition.semantics_fingerprint,
+        identity_algorithm_version=proposition.identity_algorithm_version,
         )
 
+
+
+
+def test_legacy_identity_algorithm_preserves_v1_behavior():
+    proposition = make_proposition()
+    legacy_without_fingerprint = deterministic_proposition_id(
+        proposition.proposition_type,
+        proposition.semantics_version,
+        proposition.roles,
+        proposition.temporal_scope,
+    )
+    legacy_with_ignored_fingerprint = deterministic_proposition_id(
+        proposition.proposition_type,
+        proposition.semantics_version,
+        proposition.roles,
+        proposition.temporal_scope,
+        semantics_fingerprint=proposition.semantics_fingerprint,
+        identity_algorithm_version="uuid5-v1",
+    )
+    assert legacy_with_ignored_fingerprint == legacy_without_fingerprint
+
+
+def test_v2_identity_changes_when_semantics_fingerprint_changes():
+    proposition = make_proposition()
+    first = deterministic_proposition_id(
+        proposition.proposition_type,
+        proposition.semantics_version,
+        proposition.roles,
+        proposition.temporal_scope,
+        semantics_fingerprint="sha256-v1:" + "1" * 64,
+        identity_algorithm_version="uuid5-v2",
+    )
+    second = deterministic_proposition_id(
+        proposition.proposition_type,
+        proposition.semantics_version,
+        proposition.roles,
+        proposition.temporal_scope,
+        semantics_fingerprint="sha256-v1:" + "2" * 64,
+        identity_algorithm_version="uuid5-v2",
+    )
+    assert first != second
+
+
+def test_v2_identity_requires_semantics_fingerprint():
+    proposition = make_proposition()
+    with pytest.raises(ValueError, match="requires a semantics fingerprint"):
+        deterministic_proposition_id(
+            proposition.proposition_type,
+            proposition.semantics_version,
+            proposition.roles,
+            proposition.temporal_scope,
+            identity_algorithm_version="uuid5-v2",
+        )
+
+
+def test_proposition_rejects_semantics_definition_with_different_fingerprint():
+    proposition = make_proposition()
+    semantics = build_default_proposition_semantics_registry().get(
+        "account_authentication_sequence", 1
+    )
+    changed_role = replace(
+        semantics.roles[0],
+        meaning=semantics.roles[0].meaning + " Changed definition.",
+    )
+    changed_semantics = replace(
+        semantics,
+        roles=(changed_role,) + semantics.roles[1:],
+    )
+    with pytest.raises(ValueError, match="fingerprint"):
+        proposition.validate_against(changed_semantics)
