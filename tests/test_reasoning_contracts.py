@@ -13,6 +13,8 @@ from samaritan.proposition_contracts import (
     StructuredHypothesis,
     deterministic_proposition_id,
 )
+from samaritan.proposition_semantics import build_default_proposition_semantics_registry
+from samaritan.proposition_semantics_fingerprint import proposition_semantics_fingerprint
 from samaritan.reasoning_contracts import (
     BearingDefinition,
     CriterionDefinition,
@@ -49,9 +51,16 @@ def make_proposition(account_id=None):
         )
         for role in roles
     )
+    semantics = build_default_proposition_semantics_registry().get(
+        "account_authentication_sequence", 1
+    )
+    semantics_fingerprint = proposition_semantics_fingerprint(semantics)
+    identity_algorithm_version = "uuid5-v2"
     return Proposition(
         proposition_id=deterministic_proposition_id(
-            "account_authentication_sequence", 1, roles, scope
+            "account_authentication_sequence", 1, roles, scope,
+            semantics_fingerprint=semantics_fingerprint,
+            identity_algorithm_version=identity_algorithm_version,
         ),
         proposition_type="account_authentication_sequence",
         semantics_version=1,
@@ -60,6 +69,8 @@ def make_proposition(account_id=None):
         field_provenance=provenance,
         construction_id="account_authentication_sequence",
         construction_version=1,
+        semantics_fingerprint=semantics_fingerprint,
+        identity_algorithm_version=identity_algorithm_version,
     )
 
 
