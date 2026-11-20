@@ -17,6 +17,7 @@ from samaritan.proposition_contracts import (
     PropositionFieldProvenance,
     PropositionRoleValue,
     PropositionTemporalScope,
+    LEGACY_PROPOSITION_IDENTITY_ALGORITHM,
     StructuredHypothesis,
     deterministic_proposition_id,
 )
@@ -34,6 +35,9 @@ from samaritan.reasoning_contracts import (
     RESIDUAL_ALTERNATIVE_ID,
 )
 from samaritan.repository import Repository
+
+
+_TEST_SEMANTICS_FINGERPRINT = "test-semantics-fingerprint-v1"
 
 
 def make_evaluation_context(tmp_path):
@@ -84,6 +88,8 @@ def make_evaluation_context(tmp_path):
         ),
         construction_id="test-construction",
         construction_version=1,
+        semantics_fingerprint=_TEST_SEMANTICS_FINGERPRINT,
+        identity_algorithm_version=LEGACY_PROPOSITION_IDENTITY_ALGORITHM,
     )
     evidence_set = EvidenceSet(
         evidence_set_id=new_id(),
@@ -219,6 +225,8 @@ def test_hypothesis_evaluation_engine_runs_findings_and_synthesis_end_to_end(tmp
         field_provenance=alternative_provenance,
         construction_id=proposition.construction_id,
         construction_version=proposition.construction_version,
+        semantics_fingerprint=proposition.semantics_fingerprint,
+        identity_algorithm_version=proposition.identity_algorithm_version,
     )
     alternative = HypothesisAlternative(
         alternative_id=new_id(),
