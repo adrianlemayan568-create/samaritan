@@ -1050,3 +1050,172 @@ def test_provenance_validator_rejects_populated_optional_role_without_binding(tm
         match="exact registered construction bindings",
     ):
         validator.validate(forged)
+
+
+def _make_optional_role_constructor(repository, *, entity_required=False, parameter=None):
+    base_semantics = build_default_proposition_semantics_registry().get(
+        "account_authentication_sequence", 1
+    )
+    optional_event = PropositionRoleDefinition(
+        role_name="device_event",
+        role_kind="event",
+        cardinality="one",
+        event_type="device_activity",
+        meaning="An optional device activity event.",
+        required=False,
+    )
+    device_role = PropositionRoleDefinition(
+        role_name="device",
+        role_kind="entity",
+        cardinality="one",
+        entity_type="host",
+        meaning="The device participating in the optional device activity.",
+        required=entity_required,
+    )
+    semantics = replace(
+        base_semantics,
+        roles=base_semantics.roles + (optional_event, device_role),
+        parameters=() if parameter is None else (parameter,),
+    )
+    semantics_registry = PropositionSemanticsRegistry()
+    semantics_registry.register(semantics)
+    base_construction = build_default_proposition_construction_registry().get(
+        "account_authentication_sequence", 1
+    )
+    construction = replace(
+        base_construction,
+        event_bindings=base_construction.event_bindings + (
+            __import__("samaritan.proposition_construction_contracts", fromlist=["EventRoleBinding"]).EventRoleBinding(
+                "device_event", "device_activity"
+            ),
+        ),
+        entity_bindings=base_construction.entity_bindings + (
+            EntityRoleBinding(
+                "device", (ParticipantRoleBinding("device_event", "device"),)
+            ),
+        ),
+        event_attribute_bindings=() if parameter is None else (
+            EventAttributeParameterBinding(
+                parameter.parameter_name,
+                "device_event",
+                "state",
+                "Read the optional device state attribute.",
+            ),
+        ),
+    )
+    construction_registry = PropositionConstructionRegistry()
+    construction_registry.register(construction)
+    return PropositionConstructor(repository, semantics_registry, construction_registry)
+
+
+def test_optional_event_and_dependent_entity_are_omitted_when_no_source_matches(tmp_path):
+    repository, source, start = make_repository(tmp_path)
+    account = Entity(
+        entity_id=new_id(), entity_type="user_account",
+        canonical_identifier="optional-absent", created_at=start,
+    )
+    _, evidence_set = _make_authentication_evidence(repository, source, account, start)
+    proposition = _make_optional_role_constructor(repository).construct(
+        evidence_set, "account_authentication_sequence", 1
+    )
+    role_names = {item.role_name for item in proposition.roles}
+    assert "device_event" not in role_names
+    assert "device" not in role_names
+
+
+def test_optional_event_and_dependent_entity_are_populated_when_source_matches(tmp_path):
+    repository, source, start = make_repository(tmp_path)
+    account = Entity(
+        entity_id=new_id(), entity_type="user_account",
+        canonical_identifier="optional-present", created_at=start,
+    )
+    host = Entity(
+        entity_id=new_id(), entity_type="host",
+        canonical_identifier="optional-host", created_at=start,
+    )
+    events, evidence_set = _make_authentication_evidence(repository, source, account, start)
+    device_event = persist_event(
+        repository, source, host, "device_activity", "device",
+        start + timedelta(seconds=240),
+    )
+    evidence_set = replace(
+        evidence_set,
+        evidence=evidence_set.evidence + (EvidenceReference(event_id=device_event.event_id),),
+    )
+    proposition = _make_optional_role_constructor(repository).construct(
+        evidence_set, "account_authentication_sequence", 1
+    )
+    roles = {item.role_name: item.value_id for item in proposition.roles}
+    assert roles["device_event"] == device_event.event_id
+    assert roles["device"] == host.entity_id
+
+
+def test_multiple_matches_for_optional_event_are_rejected_as_ambiguous(tmp_path):
+    repository, source, start = make_repository(tmp_path)
+    account = Entity(
+        entity_id=new_id(), entity_type="user_account",
+        canonical_identifier="optional-ambiguous", created_at=start,
+    )
+    host = Entity(
+        entity_id=new_id(), entity_type="host",
+        canonical_identifier="optional-host-ambiguous", created_at=start,
+    )
+    _, evidence_set = _make_authentication_evidence(repository, source, account, start)
+    first = persist_event(
+        repository, source, host, "device_activity", "device",
+        start + timedelta(seconds=240),
+    )
+    second = persist_event(
+        repository, source, host, "device_activity", "device",
+        start + timedelta(seconds=250),
+    )
+    evidence_set = replace(
+        evidence_set,
+        evidence=evidence_set.evidence + (
+            EvidenceReference(event_id=first.event_id),
+            EvidenceReference(event_id=second.event_id),
+        ),
+    )
+    with pytest.raises(
+        PropositionConstructionError,
+        match="expected at most one device_activity event for device_event; found 2",
+    ):
+        _make_optional_role_constructor(repository).construct(
+            evidence_set, "account_authentication_sequence", 1
+        )
+
+
+def test_required_entity_depending_on_absent_optional_event_fails(tmp_path):
+    repository, source, start = make_repository(tmp_path)
+    account = Entity(
+        entity_id=new_id(), entity_type="user_account",
+        canonical_identifier="required-dependent", created_at=start,
+    )
+    _, evidence_set = _make_authentication_evidence(repository, source, account, start)
+    with pytest.raises(
+        PropositionConstructionError,
+        match="required entity role device depends on an absent optional event role",
+    ):
+        _make_optional_role_constructor(
+            repository, entity_required=True
+        ).construct(evidence_set, "account_authentication_sequence", 1)
+
+
+def test_optional_parameter_uses_explicit_default_when_optional_event_is_absent(tmp_path):
+    repository, source, start = make_repository(tmp_path)
+    account = Entity(
+        entity_id=new_id(), entity_type="user_account",
+        canonical_identifier="optional-default", created_at=start,
+    )
+    _, evidence_set = _make_authentication_evidence(repository, source, account, start)
+    parameter = SemanticParameterDefinition(
+        "device_state", "string", required=False, default_value="unknown",
+        meaning="State reported by the optional device event.",
+    )
+    proposition = _make_optional_role_constructor(
+        repository, parameter=parameter
+    ).construct(evidence_set, "account_authentication_sequence", 1)
+    assert proposition.parameters_json == '{"device_state":"unknown"}'
+    assert "device_state" not in {
+        item.field_name for item in proposition.field_provenance
+    }
