@@ -1053,7 +1053,13 @@ def test_provenance_validator_rejects_populated_optional_role_without_binding(tm
         validator.validate(forged)
 
 
-def _make_optional_role_constructor(repository, *, entity_required=False, parameter=None):
+def _make_optional_role_constructor(
+    repository,
+    *,
+    entity_required=False,
+    parameter=None,
+    parameter_binding_kind="event_attribute",
+):
     base_semantics = build_default_proposition_semantics_registry().get(
         "account_authentication_sequence", 1
     )
@@ -1093,15 +1099,49 @@ def _make_optional_role_constructor(repository, *, entity_required=False, parame
                 "device", (ParticipantRoleBinding("device_event", "device"),)
             ),
         ),
-        event_attribute_bindings=() if parameter is None else (
-            EventAttributeParameterBinding(
-                parameter.parameter_name,
-                "device_event",
-                "state",
-                "Read the optional device state attribute.",
-            ),
+        event_attribute_bindings=(
+            (
+                EventAttributeParameterBinding(
+                    parameter.parameter_name,
+                    "device_event",
+                    "state",
+                    "Read the optional device state attribute.",
+                ),
+            )
+            if parameter is not None and parameter_binding_kind == "event_attribute"
+            else ()
+        ),
+        temporal_parameter_bindings=(
+            (
+                TemporalDifferenceParameterBinding(
+                    parameter.parameter_name,
+                    "success_event",
+                    "device_event",
+                    "Derive elapsed seconds to the optional device event.",
+                ),
+            )
+            if parameter is not None and parameter_binding_kind == "temporal"
+            else ()
+        ),
+        relationship_parameter_bindings=(
+            (
+                RelationshipParameterBinding(
+                    parameter.parameter_name,
+                    "account",
+                    "device",
+                    "account_uses_device",
+                    "relationship_id",
+                    "Use the explicit account-to-device relationship.",
+                ),
+            )
+            if parameter is not None and parameter_binding_kind == "relationship"
+            else ()
         ),
     )
+    if parameter is not None and parameter_binding_kind not in {
+        "event_attribute", "temporal", "relationship"
+    }:
+        raise ValueError("unsupported optional parameter binding kind")
     construction_registry = PropositionConstructionRegistry()
     construction_registry.register(construction)
     return PropositionConstructor(repository, semantics_registry, construction_registry)
@@ -1215,6 +1255,81 @@ def test_optional_parameter_uses_explicit_default_when_optional_event_is_absent(
         repository, parameter=parameter
     ).construct(evidence_set, "account_authentication_sequence", 1)
     assert proposition.parameters_json == '{"device_state":"unknown"}'
+    assert "device_state" not in {
+        item.field_name for item in proposition.field_provenance
+    }
+
+
+
+def test_optional_temporal_parameter_is_omitted_when_event_dependency_is_absent(tmp_path):
+    repository, source, start = make_repository(tmp_path)
+    account = Entity(
+        entity_id=new_id(), entity_type="user_account",
+        canonical_identifier="optional-temporal-parameter", created_at=start,
+    )
+    _, evidence_set = _make_authentication_evidence(repository, source, account, start)
+    parameter = SemanticParameterDefinition(
+        "success_to_device_seconds",
+        "integer",
+        required=False,
+        meaning="Elapsed seconds from authentication success to optional device activity.",
+    )
+    proposition = _make_optional_role_constructor(
+        repository,
+        parameter=parameter,
+        parameter_binding_kind="temporal",
+    ).construct(evidence_set, "account_authentication_sequence", 1)
+
+    assert proposition.parameters_json == "{}"
+    assert "success_to_device_seconds" not in {
+        item.field_name for item in proposition.field_provenance
+    }
+
+
+def test_optional_relationship_parameter_is_omitted_when_entity_dependency_is_absent(tmp_path):
+    repository, source, start = make_repository(tmp_path)
+    account = Entity(
+        entity_id=new_id(), entity_type="user_account",
+        canonical_identifier="optional-relationship-parameter", created_at=start,
+    )
+    _, evidence_set = _make_authentication_evidence(repository, source, account, start)
+    parameter = SemanticParameterDefinition(
+        "account_device_relationship_id",
+        "string",
+        required=False,
+        meaning="The explicit relationship connecting the account to the optional device.",
+    )
+    proposition = _make_optional_role_constructor(
+        repository,
+        parameter=parameter,
+        parameter_binding_kind="relationship",
+    ).construct(evidence_set, "account_authentication_sequence", 1)
+
+    assert proposition.parameters_json == "{}"
+    assert "account_device_relationship_id" not in {
+        item.field_name for item in proposition.field_provenance
+    }
+
+
+def test_optional_parameter_without_default_is_omitted_when_event_source_is_absent(tmp_path):
+    repository, source, start = make_repository(tmp_path)
+    account = Entity(
+        entity_id=new_id(), entity_type="user_account",
+        canonical_identifier="optional-no-default", created_at=start,
+    )
+    _, evidence_set = _make_authentication_evidence(repository, source, account, start)
+    parameter = SemanticParameterDefinition(
+        "device_state",
+        "string",
+        required=False,
+        meaning="State reported by the optional device activity event.",
+    )
+    proposition = _make_optional_role_constructor(
+        repository,
+        parameter=parameter,
+    ).construct(evidence_set, "account_authentication_sequence", 1)
+
+    assert proposition.parameters_json == "{}"
     assert "device_state" not in {
         item.field_name for item in proposition.field_provenance
     }
