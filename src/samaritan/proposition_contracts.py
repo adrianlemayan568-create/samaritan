@@ -126,6 +126,26 @@ class Proposition:
             raise ValueError("field provenance names must be unique")
         if not set(names).issubset(set(provenance_names)):
             raise ValueError("every proposition role must have field-level provenance")
+        provenance_by_name = {item.field_name: item for item in self.field_provenance}
+        for role in self.roles:
+            source = provenance_by_name[role.role_name]
+            if role.role_kind == "event":
+                if source.event_ids != (role.value_id,):
+                    raise ValueError(
+                        f"event role provenance must identify its exact event: {role.role_name}"
+                    )
+                if len(source.observation_ids) != 1 or source.relationship_ids:
+                    raise ValueError(
+                        f"event role provenance must identify exactly one observation: {role.role_name}"
+                    )
+            elif source.relationship_ids or not source.event_ids:
+                raise ValueError(
+                    f"entity role provenance must identify its supporting events: {role.role_name}"
+                )
+            elif len(source.event_ids) != len(source.observation_ids):
+                raise ValueError(
+                    f"entity role event and observation provenance must correspond: {role.role_name}"
+                )
         object.__setattr__(self, "construction_id", validate_text(self.construction_id, "construction_id"))
         if type(self.construction_version) is not int or self.construction_version < 1:
             raise ValueError("construction_version must be a positive integer")
@@ -212,6 +232,15 @@ class Proposition:
                 expected_provenance.add(name)
         if set(item.field_name for item in self.field_provenance) != expected_provenance:
             raise ValueError("every non-default proposition field must have exact field-level provenance")
+        expected_id = deterministic_proposition_id(
+            self.proposition_type,
+            self.semantics_version,
+            self.roles,
+            self.temporal_scope,
+            self.parameters_json,
+        )
+        if self.proposition_id != expected_id:
+            raise ValueError("proposition ID does not match its deterministic semantic identity")
 
 
 @dataclass(frozen=True, slots=True)
