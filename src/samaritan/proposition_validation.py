@@ -117,16 +117,40 @@ class PropositionProvenanceValidator:
         event_bindings = {item.semantic_role: item for item in construction.event_bindings}
         entity_bindings = {item.semantic_role: item for item in construction.entity_bindings}
         bound_role_names = set(event_bindings) | set(entity_bindings)
-        if set(roles) != bound_role_names:
+        semantic_roles = {item.role_name: item for item in semantics.roles}
+        required_role_names = {
+            name for name, definition in semantic_roles.items() if definition.required
+        }
+        if not set(roles).issubset(bound_role_names):
             raise PropositionProvenanceError(
-                "proposition roles must match the exact registered construction bindings"
+                "every populated proposition role must have a registered construction binding"
             )
+        if not required_role_names.issubset(roles):
+            raise PropositionProvenanceError(
+                "proposition is missing one or more required semantic roles"
+            )
+        for role_name, binding in event_bindings.items():
+            definition = semantic_roles.get(role_name)
+            if definition is None or definition.role_kind != "event" or definition.event_type != binding.event_type:
+                raise PropositionProvenanceError(
+                    f"registered event binding conflicts with semantic role: {role_name}"
+                )
+        for role_name in entity_bindings:
+            definition = semantic_roles.get(role_name)
+            if definition is None or definition.role_kind != "entity":
+                raise PropositionProvenanceError(
+                    f"registered entity binding conflicts with semantic role: {role_name}"
+                )
 
         for role_name, binding in event_bindings.items():
             role = roles.get(role_name)
             if role is None:
                 continue
-            source = provenance[role_name]
+            source = provenance.get(role_name)
+            if source is None:
+                raise PropositionProvenanceError(
+                    f"populated event role has no provenance: {role_name}"
+                )
             event = load_event(role.value_id)
             if (
                 event.event_type != binding.event_type
@@ -150,7 +174,7 @@ class PropositionProvenanceValidator:
                 event_role = roles.get(participant_binding.event_role)
                 if event_role is None:
                     raise PropositionProvenanceError(
-                        f"entity binding references a missing proposition event role: {participant_binding.event_role}"
+                        f"populated entity role depends on an absent event role: {participant_binding.event_role}"
                     )
                 event = load_event(event_role.value_id)
                 matches = [
@@ -166,7 +190,11 @@ class PropositionProvenanceValidator:
                 expected_observation_ids.append(event.observation_id)
             expected_events = tuple(dict.fromkeys(expected_event_ids))
             expected_observations = tuple(dict.fromkeys(expected_observation_ids))
-            source = provenance[role_name]
+            source = provenance.get(role_name)
+            if source is None:
+                raise PropositionProvenanceError(
+                    f"populated entity role has no provenance: {role_name}"
+                )
             if (
                 source.event_ids != expected_events
                 or source.observation_ids != expected_observations
@@ -181,7 +209,6 @@ class PropositionProvenanceValidator:
         if not isinstance(entities, tuple) or not all(isinstance(item, Entity) for item in entities):
             raise PropositionProvenanceError("repository returned invalid entity records")
         entities_by_id = {item.entity_id: item for item in entities}
-        semantic_roles = {item.role_name: item for item in semantics.roles}
         for role_name in entity_bindings:
             role = roles.get(role_name)
             if role is None:
@@ -192,8 +219,28 @@ class PropositionProvenanceValidator:
                     f"entity role does not resolve to the declared entity type: {role_name}"
                 )
 
+        parameter_definitions = {item.parameter_name: item for item in semantics.parameters}
+
+        def validate_unavailable_optional_parameter(parameter_name: str) -> None:
+            definition = parameter_definitions[parameter_name]
+            value_present = parameter_name in parameters
+            source_present = parameter_name in provenance
+            if definition.required:
+                raise PropositionProvenanceError(
+                    f"required parameter depends on an absent optional role: {parameter_name}"
+                )
+            if source_present or (
+                value_present and parameters[parameter_name] != definition.default_value
+            ):
+                raise PropositionProvenanceError(
+                    f"parameter claims a source that is unavailable: {parameter_name}"
+                )
+
         for binding in construction.event_attribute_bindings:
-            event_role = roles[binding.event_role]
+            event_role = roles.get(binding.event_role)
+            if event_role is None:
+                validate_unavailable_optional_parameter(binding.parameter_name)
+                continue
             event = load_event(event_role.value_id)
             attributes = json.loads(event.normalized_data_json)
             if binding.attribute_name not in attributes:
@@ -215,8 +262,13 @@ class PropositionProvenanceValidator:
                 )
 
         for binding in construction.temporal_parameter_bindings:
-            earlier = load_event(roles[binding.earlier_event_role].value_id)
-            later = load_event(roles[binding.later_event_role].value_id)
+            earlier_role = roles.get(binding.earlier_event_role)
+            later_role = roles.get(binding.later_event_role)
+            if earlier_role is None or later_role is None:
+                validate_unavailable_optional_parameter(binding.parameter_name)
+                continue
+            earlier = load_event(earlier_role.value_id)
+            later = load_event(later_role.value_id)
             seconds = (later.occurred_at - earlier.occurred_at).total_seconds()
             source = provenance[binding.parameter_name]
             expected_observations = tuple(dict.fromkeys(
@@ -235,9 +287,18 @@ class PropositionProvenanceValidator:
                 )
 
         for binding in construction.relationship_parameter_bindings:
-            source_id = roles[binding.source_entity_role].value_id
-            target_id = roles[binding.target_entity_role].value_id
-            source = provenance[binding.parameter_name]
+            source_role = roles.get(binding.source_entity_role)
+            target_role = roles.get(binding.target_entity_role)
+            if source_role is None or target_role is None:
+                validate_unavailable_optional_parameter(binding.parameter_name)
+                continue
+            source_id = source_role.value_id
+            target_id = target_role.value_id
+            source = provenance.get(binding.parameter_name)
+            if source is None:
+                raise PropositionProvenanceError(
+                    f"bound relationship parameter has no provenance: {binding.parameter_name}"
+                )
             matches: list[Relationship] = []
             for observation_id in source.observation_ids:
                 offset = 0
