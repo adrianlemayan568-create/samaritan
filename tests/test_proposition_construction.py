@@ -1083,6 +1083,7 @@ def _make_optional_role_constructor(
         base_semantics,
         roles=base_semantics.roles + (optional_event, device_role),
         parameters=() if parameter is None else (parameter,),
+        temporal_scope=None,
     )
     semantics_registry = PropositionSemanticsRegistry()
     semantics_registry.register(semantics)
@@ -1381,7 +1382,15 @@ def test_validator_rejects_forged_fallback_scope_even_with_recalculated_id(tmp_p
     _, evidence_set = _make_authentication_evidence(
         repository, source, account, start
     )
-    constructor = make_constructor(repository)
+    base_semantics = build_default_proposition_semantics_registry().get(
+        "account_authentication_sequence", 1
+    )
+    semantics_registry = PropositionSemanticsRegistry()
+    semantics_registry.register(replace(base_semantics, temporal_scope=None))
+    construction_registry = build_default_proposition_construction_registry()
+    constructor = PropositionConstructor(
+        repository, semantics_registry, construction_registry
+    )
     proposition = constructor.construct(
         evidence_set, "account_authentication_sequence", 1
     )
