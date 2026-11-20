@@ -118,11 +118,7 @@ def canonical_proposition_semantics_payload(
     role_names = [item["role_name"] for item in roles]
     parameter_names = [item["parameter_name"] for item in parameters]
     constraint_keys = [
-        (
-            item["earlier_role"],
-            item["later_role"],
-            item["relation"],
-        )
+        (item["earlier_role"], item["later_role"])
         for item in constraints
     ]
     if len(role_names) != len(set(role_names)):
