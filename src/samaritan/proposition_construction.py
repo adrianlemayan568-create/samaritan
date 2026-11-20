@@ -17,8 +17,10 @@ from samaritan.proposition_contracts import (
     PropositionFieldProvenance,
     PropositionRoleValue,
     PropositionTemporalScope,
+    CURRENT_PROPOSITION_IDENTITY_ALGORITHM,
     deterministic_proposition_id,
 )
+from samaritan.proposition_semantics_fingerprint import proposition_semantics_fingerprint
 from samaritan.proposition_semantics import (
     PropositionSemantics,
     PropositionSemanticsRegistry,
@@ -314,12 +316,16 @@ class PropositionConstructor:
             parameter_values, sort_keys=True, separators=(",", ":"), ensure_ascii=False
         )
         role_tuple = tuple(ordered_roles)
+        semantics_fingerprint = proposition_semantics_fingerprint(semantics)
+        identity_algorithm_version = CURRENT_PROPOSITION_IDENTITY_ALGORITHM
         proposition_id = deterministic_proposition_id(
             semantics.proposition_type,
             semantics.semantics_version,
             role_tuple,
             temporal_scope,
             parameters_json,
+            semantics_fingerprint=semantics_fingerprint,
+            identity_algorithm_version=identity_algorithm_version,
         )
         proposition = Proposition(
             proposition_id=proposition_id,
@@ -332,6 +338,8 @@ class PropositionConstructor:
             ) if name in provenance),
             construction_id=construction.construction_id,
             construction_version=construction.construction_version,
+            semantics_fingerprint=semantics_fingerprint,
+            identity_algorithm_version=identity_algorithm_version,
             parameters_json=parameters_json,
         )
         try:
