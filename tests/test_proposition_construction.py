@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -37,6 +38,10 @@ from samaritan.proposition_semantics import (
     build_default_proposition_semantics_registry,
 )
 from samaritan.repository import Repository
+from samaritan.proposition_validation import (
+    PropositionProvenanceError,
+    PropositionProvenanceValidator,
+)
 
 
 def make_repository(tmp_path):
@@ -864,4 +869,45 @@ def test_constructor_rejects_event_attribute_type_mismatch(tmp_path):
         constructor.construct(
             evidence_set, "account_authentication_sequence", 1
         )
+
+def test_provenance_validator_rejects_forged_event_observation_link(tmp_path):
+    repository, source, start = make_repository(tmp_path)
+    account = Entity(
+        entity_id=new_id(),
+        entity_type="user_account",
+        canonical_identifier="alice",
+        created_at=start,
+    )
+    events = (
+        persist_event(repository, source, account, "authentication_failure", "target", start),
+        persist_event(repository, source, account, "authentication_success", "target", start + timedelta(seconds=90)),
+        persist_event(repository, source, account, "host_activity", "subject", start + timedelta(seconds=180)),
+    )
+    evidence_set = EvidenceSet(
+        evidence_set_id=new_id(),
+        evidence=tuple(EvidenceReference(event_id=item.event_id) for item in events),
+        created_at=start + timedelta(minutes=4),
+    )
+    constructor = make_constructor(repository)
+    proposition = constructor.construct(
+        evidence_set, "account_authentication_sequence", 1
+    )
+    forged_provenance = tuple(
+        replace(item, observation_ids=(new_id(),))
+        if item.field_name == "failure_event"
+        else item
+        for item in proposition.field_provenance
+    )
+    forged = replace(proposition, field_provenance=forged_provenance)
+
+    validator = PropositionProvenanceValidator(
+        repository,
+        constructor.semantics_registry,
+        constructor.construction_registry,
+    )
+    with pytest.raises(
+        PropositionProvenanceError,
+        match="event and observation provenance disagree",
+    ):
+        validator.validate(forged)
 
