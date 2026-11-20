@@ -455,3 +455,222 @@ def test_opposing_findings_across_independent_criteria_aggregate_as_conflicting(
     )
     assert result.outcome == "inconclusive"
     assert result.alternative_standings[0].standing == "conflicting"
+
+
+def make_two_criterion_specification(
+    *,
+    second_required=True,
+    first_focal_judgment="expected",
+):
+    specification, first_criterion, alternative = make_specification()
+    original = specification.evaluation_rule
+
+    second_criterion = CriterionDefinition(
+        criterion_id="independent-network-context",
+        criterion_type="network_context",
+        parameters_json="{}",
+        description="An independent network-context condition.",
+        independence_group="network-source",
+    )
+
+    first_bearings = tuple(
+        BearingDefinition(
+            criterion_id=item.criterion_id,
+            outcome_code=item.outcome_code,
+            alternative_id=item.alternative_id,
+            focal_judgment=first_focal_judgment,
+            alternative_judgment=(
+                "compatible"
+                if item.alternative_id == RESIDUAL_ALTERNATIVE_ID
+                else (
+                    "expected"
+                    if first_focal_judgment == "incompatible"
+                    else "unexpected"
+                )
+            ),
+            evaluability_role=item.evaluability_role,
+            rationale="The first independent criterion's registered interpretation.",
+            basis="Independent first source.",
+            author="analyst",
+            review_status="approved",
+        )
+        for item in original.bearing_definitions
+    )
+
+    second_bearings = (
+        BearingDefinition(
+            criterion_id=second_criterion.criterion_id,
+            outcome_code="observed",
+            alternative_id=alternative.alternative_id,
+            focal_judgment="expected",
+            alternative_judgment="unexpected",
+            evaluability_role="required" if second_required else "contextual",
+            rationale="The second criterion favors the focal proposition.",
+            basis="Independent network evidence.",
+            author="analyst",
+            review_status="approved",
+        ),
+        BearingDefinition(
+            criterion_id=second_criterion.criterion_id,
+            outcome_code="observed",
+            alternative_id=RESIDUAL_ALTERNATIVE_ID,
+            focal_judgment="expected",
+            alternative_judgment="compatible",
+            evaluability_role="contextual",
+            rationale="The residual remains compatible.",
+            basis="Broad residual explanation.",
+            author="analyst",
+            review_status="approved",
+        ),
+    )
+
+    rule = HypothesisEvaluationRule(
+        evaluation_rule_id="account-authentication-adversarial-v1",
+        rule_version=1,
+        proposition_type=original.proposition_type,
+        semantics_version=original.semantics_version,
+        criterion_definitions=(first_criterion, second_criterion),
+        bearing_definitions=first_bearings + second_bearings,
+        description="Adversarial tests for criterion completeness.",
+        review_status="approved",
+    )
+
+    specification = HypothesisSpecification(
+        hypothesis=specification.hypothesis,
+        alternatives=specification.alternatives,
+        evaluation_rule=rule,
+    )
+    return specification, first_criterion, second_criterion, alternative
+
+
+def test_multiple_missing_required_criteria_report_incompleteness_once():
+    specification, _, _, _ = make_two_criterion_specification()
+
+    result = DiagnosticitySynthesizer().synthesize(
+        specification,
+        (),
+        CriterionOutcomeRegistry(),
+    )
+
+    assert result.outcome == "inconclusive"
+    assert result.reason_codes.count("required_criteria_incomplete") == 1
+    assert "missing_finding:independent-confirmation" in result.reason_codes
+    assert "missing_finding:independent-network-context" in result.reason_codes
+
+
+def test_insufficient_required_finding_marks_evaluation_incomplete():
+    specification, first_criterion, _, _ = make_two_criterion_specification(
+        second_required=False,
+    )
+    finding = CriterionFinding(
+        finding_id=str(uuid4()),
+        criterion_id=first_criterion.criterion_id,
+        status="insufficient",
+        outcome_code=None,
+        evidence=(),
+        rationale="The source record is incomplete.",
+        missing_information=("Complete account-holder confirmation",),
+    )
+
+    result = DiagnosticitySynthesizer().synthesize(
+        specification,
+        (finding,),
+        CriterionOutcomeRegistry(),
+    )
+
+    assert result.outcome == "inconclusive"
+    assert f"insufficient_finding:{first_criterion.criterion_id}" in result.reason_codes
+    assert "required_criteria_incomplete" in result.reason_codes
+
+
+def test_missing_contextual_criterion_does_not_block_supported_result():
+    specification, first_criterion, second_criterion, _ = (
+        make_two_criterion_specification(second_required=False)
+    )
+    outcomes = CriterionOutcomeRegistry()
+    outcomes.register(CriterionOutcomeDefinition(
+        criterion_type=first_criterion.criterion_type,
+        outcome_code="observed",
+        meaning="Independent confirmation was obtained.",
+    ))
+    finding = CriterionFinding(
+        finding_id=str(uuid4()),
+        criterion_id=first_criterion.criterion_id,
+        status="matched",
+        outcome_code="observed",
+        evidence=(EvidenceReference(event_id=str(uuid4())),),
+        rationale="The account holder independently confirmed the activity.",
+    )
+
+    result = DiagnosticitySynthesizer().synthesize(
+        specification,
+        (finding,),
+        outcomes,
+    )
+
+    assert result.outcome == "supported"
+    assert f"missing_finding:{second_criterion.criterion_id}" in result.reason_codes
+    assert "required_criteria_incomplete" not in result.reason_codes
+
+
+def test_complete_contradiction_takes_precedence_over_missing_required_criterion():
+    specification, first_criterion, second_criterion, _ = (
+        make_two_criterion_specification(
+            second_required=True,
+            first_focal_judgment="incompatible",
+        )
+    )
+    outcomes = CriterionOutcomeRegistry()
+    outcomes.register(CriterionOutcomeDefinition(
+        criterion_type=first_criterion.criterion_type,
+        outcome_code="observed",
+        meaning="Complete independent evidence contradicts the focal proposition.",
+    ))
+    finding = CriterionFinding(
+        finding_id=str(uuid4()),
+        criterion_id=first_criterion.criterion_id,
+        status="matched",
+        outcome_code="observed",
+        evidence=(EvidenceReference(event_id=str(uuid4())),),
+        rationale="Complete non-influenceable evidence contradicts the focal proposition.",
+    )
+
+    result = DiagnosticitySynthesizer().synthesize(
+        specification,
+        (finding,),
+        outcomes,
+    )
+
+    assert result.outcome == "not_supported"
+    assert "complete_non_influenceable_focal_contradiction" in result.reason_codes
+    assert "required_criteria_incomplete" in result.reason_codes
+    assert f"missing_finding:{second_criterion.criterion_id}" in result.reason_codes
+
+
+def test_any_required_bearing_makes_criterion_required_for_completeness():
+    specification, first_criterion, _, _ = make_two_criterion_specification(
+        second_required=False,
+    )
+
+    # The first criterion has a required declared-alternative bearing
+    # and a contextual residual bearing.
+    first_bearings = tuple(
+        bearing
+        for bearing in specification.evaluation_rule.bearing_definitions
+        if bearing.criterion_id == first_criterion.criterion_id
+    )
+
+    assert {bearing.evaluability_role for bearing in first_bearings} == {
+        "required",
+        "contextual",
+    }
+
+    result = DiagnosticitySynthesizer().synthesize(
+        specification,
+        (),
+        CriterionOutcomeRegistry(),
+    )
+
+    assert result.outcome == "inconclusive"
+    assert "required_criteria_incomplete" in result.reason_codes
+    assert f"missing_finding:{first_criterion.criterion_id}" in result.reason_codes

@@ -158,6 +158,9 @@ class DiagnosticitySynthesizer:
                 )
             )
 
+        if required_incomplete:
+            reason_codes.append("required_criteria_incomplete")
+
         if complete_findings == 0:
             reason_codes.append("no_complete_findings")
             outcome = "inconclusive"
@@ -165,7 +168,6 @@ class DiagnosticitySynthesizer:
             reason_codes.append("complete_non_influenceable_focal_contradiction")
             outcome = "not_supported"
         elif required_incomplete:
-            reason_codes.append("required_criteria_incomplete")
             outcome = "inconclusive"
         elif all(item.standing == "favors_focal" for item in standings):
             outcome = "supported"
