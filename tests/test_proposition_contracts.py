@@ -224,6 +224,33 @@ def test_legacy_identity_algorithm_preserves_v1_behavior():
     assert legacy_with_ignored_fingerprint == legacy_without_fingerprint
 
 
+def test_legacy_proposition_identity_remains_valid_against_registered_semantics():
+    proposition = make_proposition()
+    semantics = build_default_proposition_semantics_registry().get(
+        "account_authentication_sequence", 1
+    )
+    legacy_id = deterministic_proposition_id(
+        proposition.proposition_type,
+        proposition.semantics_version,
+        proposition.roles,
+        proposition.temporal_scope,
+        proposition.parameters_json,
+        identity_algorithm_version="uuid5-v1",
+    )
+    legacy_proposition = replace(
+        proposition,
+        proposition_id=legacy_id,
+        identity_algorithm_version="uuid5-v1",
+    )
+    legacy_proposition.validate_against(semantics)
+
+
+def test_proposition_rejects_unknown_identity_algorithm_version():
+    proposition = make_proposition()
+    with pytest.raises(ValueError, match="unsupported proposition identity algorithm"):
+        replace(proposition, identity_algorithm_version="uuid5-v3")
+
+
 def test_v2_identity_changes_when_semantics_fingerprint_changes():
     proposition = make_proposition()
     first = deterministic_proposition_id(
