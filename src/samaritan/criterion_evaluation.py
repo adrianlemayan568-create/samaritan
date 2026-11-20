@@ -174,16 +174,19 @@ class CriterionEvaluationEngine:
                 evidence,
             )
         present = parameters["attribute_name"] in json.loads(event.normalized_data_json)
+        if not present:
+            return self._insufficient(
+                criterion,
+                f"Registered event attribute {parameters['attribute_name']} is not represented in the normalized event.",
+                (f"Validated coverage or normalized value for attribute {parameters['attribute_name']}",),
+                (EvidenceReference(event_id=event.event_id), EvidenceReference(observation_id=event.observation_id)),
+            )
         return self._result(
             criterion,
-            "matched" if present else "not_matched",
-            "present" if present else "absent",
+            "matched",
+            "present",
             (EvidenceReference(event_id=event.event_id), EvidenceReference(observation_id=event.observation_id)),
-            (
-                f"Registered event attribute {parameters['attribute_name']} is present."
-                if present
-                else f"Registered event attribute {parameters['attribute_name']} is absent."
-            ),
+            f"Registered event attribute {parameters['attribute_name']} is present.",
         )
 
     def _event_type_count(
@@ -234,7 +237,14 @@ class CriterionEvaluationEngine:
                 (f"Exactly one participant with role {parameters['participant_role']}",),
                 (EvidenceReference(event_id=event.event_id),),
             )
-        matched = len(matches) == 1 and matches[0] == entity_role.value_id
+        if not matches:
+            return self._insufficient(
+                criterion,
+                "The event contains no participant record for the requested role; absence cannot establish a mismatch without participant-coverage guarantees.",
+                (f"Validated participant coverage for role {parameters['participant_role']}",),
+                (EvidenceReference(event_id=event.event_id), EvidenceReference(observation_id=event.observation_id)),
+            )
+        matched = matches[0] == entity_role.value_id
         return self._result(
             criterion,
             "matched" if matched else "not_matched",
