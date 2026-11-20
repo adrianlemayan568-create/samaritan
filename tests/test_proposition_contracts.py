@@ -137,3 +137,46 @@ def test_every_role_requires_field_level_provenance():
             construction_id=proposition.construction_id,
             construction_version=1,
         )
+
+def test_proposition_identity_must_match_semantic_content():
+    proposition = make_proposition()
+    invalid = Proposition(
+        proposition_id=str(uuid4()),
+        proposition_type=proposition.proposition_type,
+        semantics_version=proposition.semantics_version,
+        roles=proposition.roles,
+        temporal_scope=proposition.temporal_scope,
+        field_provenance=proposition.field_provenance,
+        construction_id=proposition.construction_id,
+        construction_version=proposition.construction_version,
+    )
+    semantics = build_default_proposition_semantics_registry().get(
+        "account_authentication_sequence", 1
+    )
+    with pytest.raises(ValueError, match="deterministic semantic identity"):
+        invalid.validate_against(semantics)
+
+
+def test_event_role_provenance_must_name_the_role_event():
+    proposition = make_proposition()
+    invalid_provenance = tuple(
+        PropositionFieldProvenance(
+            item.field_name,
+            (str(uuid4()),) if item.field_name == "failure_event" else item.event_ids,
+            item.observation_ids,
+            item.relationship_ids,
+        )
+        for item in proposition.field_provenance
+    )
+    with pytest.raises(ValueError, match="exact event"):
+        Proposition(
+            proposition_id=proposition.proposition_id,
+            proposition_type=proposition.proposition_type,
+            semantics_version=proposition.semantics_version,
+            roles=proposition.roles,
+            temporal_scope=proposition.temporal_scope,
+            field_provenance=invalid_provenance,
+            construction_id=proposition.construction_id,
+            construction_version=proposition.construction_version,
+        )
+
