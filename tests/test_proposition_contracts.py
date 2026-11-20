@@ -51,8 +51,6 @@ def make_proposition():
         field_provenance=provenance,
         construction_id="account_authentication_sequence",
         construction_version=1,
-        semantics_fingerprint=proposition.semantics_fingerprint,
-        identity_algorithm_version=proposition.identity_algorithm_version,
         semantics_fingerprint=semantics_fingerprint,
         identity_algorithm_version="uuid5-v2",
     )
@@ -98,8 +96,6 @@ def test_temporal_scope_must_match_semantic_boundaries():
         field_provenance=proposition.field_provenance,
         construction_id=proposition.construction_id,
         construction_version=1,
-        semantics_fingerprint=proposition.semantics_fingerprint,
-        identity_algorithm_version=proposition.identity_algorithm_version,
         semantics_fingerprint=proposition.semantics_fingerprint,
         identity_algorithm_version=proposition.identity_algorithm_version,
     )
@@ -156,8 +152,8 @@ def test_every_role_requires_field_level_provenance():
             field_provenance=proposition.field_provenance[:-1],
             construction_id=proposition.construction_id,
             construction_version=1,
-        semantics_fingerprint=proposition.semantics_fingerprint,
-        identity_algorithm_version=proposition.identity_algorithm_version,
+            semantics_fingerprint=proposition.semantics_fingerprint,
+            identity_algorithm_version=proposition.identity_algorithm_version,
         )
 
 def test_proposition_identity_must_match_semantic_content():
@@ -171,8 +167,6 @@ def test_proposition_identity_must_match_semantic_content():
         field_provenance=proposition.field_provenance,
         construction_id=proposition.construction_id,
         construction_version=proposition.construction_version,
-        semantics_fingerprint=proposition.semantics_fingerprint,
-        identity_algorithm_version=proposition.identity_algorithm_version,
         semantics_fingerprint=proposition.semantics_fingerprint,
         identity_algorithm_version=proposition.identity_algorithm_version,
     )
@@ -204,8 +198,8 @@ def test_event_role_provenance_must_name_the_role_event():
             field_provenance=invalid_provenance,
             construction_id=proposition.construction_id,
             construction_version=proposition.construction_version,
-        semantics_fingerprint=proposition.semantics_fingerprint,
-        identity_algorithm_version=proposition.identity_algorithm_version,
+            semantics_fingerprint=proposition.semantics_fingerprint,
+            identity_algorithm_version=proposition.identity_algorithm_version,
         )
 
 
