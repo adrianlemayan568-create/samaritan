@@ -52,7 +52,10 @@ class PropositionProvenanceValidator:
             raise PropositionProvenanceError(
                 "recorded construction does not target the proposition's exact semantics"
             )
-        proposition.validate_against(semantics)
+        try:
+            proposition.validate_against(semantics)
+        except (TypeError, ValueError) as exc:
+            raise PropositionProvenanceError(str(exc)) from exc
 
         roles = {item.role_name: item for item in proposition.roles}
         provenance = {item.field_name: item for item in proposition.field_provenance}
