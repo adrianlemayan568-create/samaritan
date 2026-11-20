@@ -1333,3 +1333,105 @@ def test_optional_parameter_without_default_is_omitted_when_event_source_is_abse
     assert "device_state" not in {
         item.field_name for item in proposition.field_provenance
     }
+
+
+@pytest.mark.parametrize("optional_offset_seconds", [-60, 240])
+def test_optional_event_does_not_expand_implicit_temporal_scope(
+    tmp_path, optional_offset_seconds
+):
+    repository, source, start = make_repository(tmp_path)
+    account = Entity(
+        entity_id=new_id(), entity_type="user_account",
+        canonical_identifier=f"optional-scope-{optional_offset_seconds}",
+        created_at=start,
+    )
+    _, evidence_set = _make_authentication_evidence(
+        repository, source, account, start
+    )
+    optional_host = Entity(
+        entity_id=new_id(), entity_type="host",
+        canonical_identifier=f"optional-scope-host-{optional_offset_seconds}",
+        created_at=start,
+    )
+    optional_event = persist_event(
+        repository, source, optional_host, "device_activity", "device",
+        start + timedelta(seconds=optional_offset_seconds),
+    )
+    evidence_set = replace(
+        evidence_set,
+        evidence=evidence_set.evidence + (
+            EvidenceReference(event_id=optional_event.event_id),
+        ),
+    )
+
+    proposition = _make_optional_role_constructor(repository).construct(
+        evidence_set, "account_authentication_sequence", 1
+    )
+
+    assert proposition.temporal_scope.starts_at == start
+    assert proposition.temporal_scope.ends_at == start + timedelta(seconds=180)
+
+
+def test_validator_rejects_forged_fallback_scope_even_with_recalculated_id(tmp_path):
+    repository, source, start = make_repository(tmp_path)
+    account = Entity(
+        entity_id=new_id(), entity_type="user_account",
+        canonical_identifier="forged-fallback-scope", created_at=start,
+    )
+    _, evidence_set = _make_authentication_evidence(
+        repository, source, account, start
+    )
+    constructor = make_constructor(repository)
+    proposition = constructor.construct(
+        evidence_set, "account_authentication_sequence", 1
+    )
+    forged_scope = replace(
+        proposition.temporal_scope,
+        starts_at=proposition.temporal_scope.starts_at - timedelta(seconds=30),
+    )
+    forged_id = deterministic_proposition_id(
+        proposition.proposition_type,
+        proposition.semantics_version,
+        proposition.roles,
+        forged_scope,
+        proposition.parameters_json,
+        semantics_fingerprint=proposition.semantics_fingerprint,
+        identity_algorithm_version=proposition.identity_algorithm_version,
+    )
+    forged = replace(
+        proposition,
+        proposition_id=forged_id,
+        temporal_scope=forged_scope,
+    )
+    validator = PropositionProvenanceValidator(
+        repository,
+        constructor.semantics_registry,
+        constructor.construction_registry,
+    )
+
+    with pytest.raises(
+        PropositionProvenanceError,
+        match="proposition temporal scope does not match semantic boundaries",
+    ):
+        validator.validate(forged)
+
+
+def test_semantics_without_required_event_role_requires_explicit_scope():
+    base = build_default_proposition_semantics_registry().get(
+        "account_authentication_sequence", 1
+    )
+    optional_event_roles = tuple(
+        replace(role, required=False) if role.role_kind == "event" else role
+        for role in base.roles
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="semantics without an explicit temporal scope must declare at least one required event role",
+    ):
+        replace(
+            base,
+            roles=optional_event_roles,
+            temporal_constraints=(),
+            temporal_scope=None,
+        )
