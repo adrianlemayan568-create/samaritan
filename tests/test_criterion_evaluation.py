@@ -288,6 +288,7 @@ def test_hypothesis_evaluation_engine_runs_findings_and_synthesis_end_to_end(tmp
         rule_version=1,
         proposition_type=proposition.proposition_type,
         semantics_version=proposition.semantics_version,
+        semantics_fingerprint=proposition.semantics_fingerprint,
         criterion_definitions=(criterion,),
         bearing_definitions=bearings,
         description="Evaluate the normalized authentication result.",
