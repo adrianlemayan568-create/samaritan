@@ -123,7 +123,7 @@ class PropositionProvenanceValidator:
         }
         if not set(roles).issubset(bound_role_names):
             raise PropositionProvenanceError(
-                "every populated proposition role must have a registered construction binding"
+                "proposition roles must match exact registered construction bindings; every populated role must have a registered binding"
             )
         if not required_role_names.issubset(roles):
             raise PropositionProvenanceError(
