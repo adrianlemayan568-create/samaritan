@@ -253,7 +253,7 @@ class PropositionProvenanceValidator:
                     if len(batch) < 500:
                         break
                     offset += 500
-            if len(source.relationship_ids) != 1 or len(matches) != 1:
+            if source.event_ids or len(source.relationship_ids) != 1 or len(matches) != 1:
                 raise PropositionProvenanceError(
                     f"relationship provenance must identify exactly one stored relationship: {binding.parameter_name}"
                 )
