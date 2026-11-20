@@ -163,6 +163,29 @@ class PropositionProvenanceValidator:
                     f"event role value or provenance does not match its source event: {role_name}"
                 )
 
+        # Independently derive the fallback scope from source-verified required roles.
+        if semantics.temporal_scope is None:
+            required_event_times = [
+                load_event(roles[name].value_id).occurred_at
+                for name, definition in semantic_roles.items()
+                if definition.role_kind == "event" and definition.required
+            ]
+            if not required_event_times:
+                raise PropositionProvenanceError(
+                    "implicit temporal scope requires at least one required event role"
+                )
+            expected_start = min(required_event_times)
+            expected_end = max(required_event_times)
+            if (
+                proposition.temporal_scope.starts_at != expected_start
+                or proposition.temporal_scope.ends_at != expected_end
+                or not proposition.temporal_scope.start_inclusive
+                or not proposition.temporal_scope.end_inclusive
+            ):
+                raise PropositionProvenanceError(
+                    "fallback temporal scope does not match source-verified required event roles"
+                )
+
         entity_ids: set[str] = set()
         for role_name, binding in entity_bindings.items():
             role = roles.get(role_name)
