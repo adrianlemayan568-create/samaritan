@@ -237,12 +237,16 @@ class PropositionConstructor:
             start_inclusive = scope_definition.start_inclusive
             end_inclusive = scope_definition.end_inclusive
         else:
-            if not event_times:
+            required_event_times = [
+                event_times[name]
+                for name in required_event_roles
+            ]
+            if not required_event_times:
                 raise PropositionConstructionError(
-                    "at least one event role must be populated to establish temporal scope"
+                    "implicit temporal scope requires at least one required event role"
                 )
-            starts_at = min(event_times.values())
-            ends_at = max(event_times.values())
+            starts_at = min(required_event_times)
+            ends_at = max(required_event_times)
             start_inclusive = end_inclusive = True
         temporal_scope = PropositionTemporalScope(
             starts_at=starts_at,
