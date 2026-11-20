@@ -9,9 +9,16 @@ from datetime import datetime
 
 from samaritan.contracts import SCHEMA_VERSION, normalize_timestamp, validate_id, validate_json_object, validate_text
 from samaritan.proposition_semantics import PropositionSemantics
+from samaritan.proposition_semantics_fingerprint import proposition_semantics_fingerprint
 
 
 _PROPOSITION_NAMESPACE = uuid.UUID("a6c3d5f2-4c4b-5a87-9c23-0e4c5f6b7a81")
+LEGACY_PROPOSITION_IDENTITY_ALGORITHM = "uuid5-v1"
+CURRENT_PROPOSITION_IDENTITY_ALGORITHM = "uuid5-v2"
+SUPPORTED_PROPOSITION_IDENTITY_ALGORITHMS = frozenset({
+    LEGACY_PROPOSITION_IDENTITY_ALGORITHM,
+    CURRENT_PROPOSITION_IDENTITY_ALGORITHM,
+})
 ROLE_VALUE_KINDS = frozenset({"entity", "event"})
 
 
@@ -100,6 +107,8 @@ class Proposition:
     field_provenance: tuple[PropositionFieldProvenance, ...]
     construction_id: str
     construction_version: int
+    semantics_fingerprint: str
+    identity_algorithm_version: str
     parameters_json: str = "{}"
     schema_version: int = SCHEMA_VERSION
 
@@ -145,6 +154,16 @@ class Proposition:
         object.__setattr__(self, "construction_id", validate_text(self.construction_id, "construction_id"))
         if type(self.construction_version) is not int or self.construction_version < 1:
             raise ValueError("construction_version must be a positive integer")
+        object.__setattr__(
+            self, "semantics_fingerprint",
+            validate_text(self.semantics_fingerprint, "semantics_fingerprint"),
+        )
+        algorithm = validate_text(
+            self.identity_algorithm_version, "identity_algorithm_version"
+        )
+        if algorithm not in SUPPORTED_PROPOSITION_IDENTITY_ALGORITHMS:
+            raise ValueError("unsupported proposition identity algorithm version")
+        object.__setattr__(self, "identity_algorithm_version", algorithm)
         if not isinstance(self.parameters_json, str):
             raise TypeError("parameters_json must be a JSON object string")
         validated_parameters = validate_json_object(self.parameters_json, "parameters_json")
@@ -162,6 +181,9 @@ class Proposition:
             semantics.proposition_type, semantics.semantics_version
         ):
             raise ValueError("proposition semantics identity does not match")
+        expected_fingerprint = proposition_semantics_fingerprint(semantics)
+        if self.semantics_fingerprint != expected_fingerprint:
+            raise ValueError("proposition semantics fingerprint does not match exact semantics")
         expected = {item.role_name: item for item in semantics.roles}
         actual = {item.role_name: item for item in self.roles}
         for name, definition in expected.items():
@@ -234,6 +256,8 @@ class Proposition:
             self.roles,
             self.temporal_scope,
             self.parameters_json,
+            semantics_fingerprint=self.semantics_fingerprint,
+            identity_algorithm_version=self.identity_algorithm_version,
         )
         if self.proposition_id != expected_id:
             raise ValueError("proposition ID does not match its deterministic semantic identity")
@@ -263,8 +287,14 @@ def deterministic_proposition_id(
     roles: tuple[PropositionRoleValue, ...],
     temporal_scope: PropositionTemporalScope,
     parameters_json: str = "{}",
+    *,
+    semantics_fingerprint: str | None = None,
+    identity_algorithm_version: str = LEGACY_PROPOSITION_IDENTITY_ALGORITHM,
 ) -> str:
-    """Return a UUID5 identity independent of construction or generation history."""
+    """Return a versioned UUID5 identity independent of construction history."""
+    algorithm = validate_text(identity_algorithm_version, "identity_algorithm_version")
+    if algorithm not in SUPPORTED_PROPOSITION_IDENTITY_ALGORITHMS:
+        raise ValueError("unsupported proposition identity algorithm version")
     canonical = {
         "type": validate_text(proposition_type, "proposition_type"),
         "semantics_version": semantics_version,
@@ -285,5 +315,12 @@ def deterministic_proposition_id(
         },
         "parameters": json.loads(parameters_json),
     }
+    if algorithm == CURRENT_PROPOSITION_IDENTITY_ALGORITHM:
+        if semantics_fingerprint is None:
+            raise ValueError("uuid5-v2 identity requires a semantics fingerprint")
+        canonical["identity_algorithm_version"] = algorithm
+        canonical["semantics_fingerprint"] = validate_text(
+            semantics_fingerprint, "semantics_fingerprint"
+        )
     encoded = json.dumps(canonical, sort_keys=True, separators=(",", ":"))
     return str(uuid.uuid5(_PROPOSITION_NAMESPACE, encoded))
