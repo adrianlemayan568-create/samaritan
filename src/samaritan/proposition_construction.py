@@ -24,6 +24,7 @@ from samaritan.proposition_semantics import (
     PropositionSemanticsRegistry,
 )
 from samaritan.repository import Repository
+from samaritan.proposition_validation import PropositionProvenanceValidator
 
 
 class PropositionConstructionError(ValueError):
@@ -335,9 +336,14 @@ class PropositionConstructor:
         )
         try:
             proposition.validate_against(semantics)
+            PropositionProvenanceValidator(
+                self.repository,
+                self.semantics_registry,
+                self.construction_registry,
+            ).validate(proposition)
         except (TypeError, ValueError) as exc:
             raise PropositionConstructionError(
-                f"constructed proposition failed semantic validation: {exc}"
+                f"constructed proposition failed semantic or provenance validation: {exc}"
             ) from exc
         return proposition
 
