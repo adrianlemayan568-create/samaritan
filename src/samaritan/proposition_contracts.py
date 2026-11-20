@@ -210,17 +210,33 @@ class Proposition:
                     raise ValueError(
                         f"temporal interval exceeds {constraint.max_interval_seconds} seconds"
                     )
+        scope = self.temporal_scope
         if semantics.temporal_scope is not None:
             start = times[semantics.temporal_scope.start_role]
             end = times[semantics.temporal_scope.end_role]
-            scope = self.temporal_scope
-            if scope.starts_at != start or scope.ends_at != end:
-                raise ValueError("proposition temporal scope does not match semantic boundaries")
-            if (
-                scope.start_inclusive != semantics.temporal_scope.start_inclusive
-                or scope.end_inclusive != semantics.temporal_scope.end_inclusive
-            ):
-                raise ValueError("proposition temporal scope inclusivity does not match semantics")
+            expected_start_inclusive = semantics.temporal_scope.start_inclusive
+            expected_end_inclusive = semantics.temporal_scope.end_inclusive
+        else:
+            required_event_role_names = {
+                item.role_name for item in semantics.roles
+                if item.role_kind == "event" and item.required
+            }
+            if not required_event_role_names:
+                raise ValueError(
+                    "implicit temporal scope requires at least one required event role"
+                )
+            required_event_times = [times[name] for name in required_event_role_names]
+            start = min(required_event_times)
+            end = max(required_event_times)
+            expected_start_inclusive = True
+            expected_end_inclusive = True
+        if scope.starts_at != start or scope.ends_at != end:
+            raise ValueError("proposition temporal scope does not match semantic boundaries")
+        if (
+            scope.start_inclusive != expected_start_inclusive
+            or scope.end_inclusive != expected_end_inclusive
+        ):
+            raise ValueError("proposition temporal scope inclusivity does not match semantics")
         parameters = json.loads(self.parameters_json)
         definitions = {item.parameter_name: item for item in semantics.parameters}
         if set(parameters) - set(definitions):
