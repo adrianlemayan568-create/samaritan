@@ -71,10 +71,13 @@ class PropositionProvenanceValidator:
             value = parameters[definition.parameter_name]
             if (
                 definition.parameter_name not in bound_parameter_names
-                and value != definition.default_value
+                and (
+                    value != definition.default_value
+                    or definition.parameter_name in provenance
+                )
             ):
                 raise PropositionProvenanceError(
-                    f"non-default parameter has no registered construction binding: {definition.parameter_name}"
+                    f"parameter has no registered construction binding: {definition.parameter_name}"
                 )
         events: dict[str, Event] = {}
         observations: dict[str, Observation] = {}
