@@ -115,6 +115,25 @@ def canonical_proposition_semantics_payload(
         key=lambda item: item["parameter_name"],
     )
 
+    role_names = [item["role_name"] for item in roles]
+    parameter_names = [item["parameter_name"] for item in parameters]
+    constraint_keys = [
+        (
+            item["earlier_role"],
+            item["later_role"],
+            item["relation"],
+        )
+        for item in constraints
+    ]
+    if len(role_names) != len(set(role_names)):
+        raise ValueError("role names collide after Unicode NFC normalization")
+    if len(parameter_names) != len(set(parameter_names)):
+        raise ValueError("parameter names collide after Unicode NFC normalization")
+    if set(role_names) & set(parameter_names):
+        raise ValueError("role and parameter names collide after Unicode NFC normalization")
+    if len(constraint_keys) != len(set(constraint_keys)):
+        raise ValueError("temporal constraints collide after Unicode NFC normalization")
+
     return {
         "fingerprint_algorithm": SEMANTICS_FINGERPRINT_ALGORITHM,
         "proposition_type": _canonical_text(semantics.proposition_type),
