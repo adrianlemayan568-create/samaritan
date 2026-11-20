@@ -57,6 +57,25 @@ class PropositionProvenanceValidator:
         roles = {item.role_name: item for item in proposition.roles}
         provenance = {item.field_name: item for item in proposition.field_provenance}
         parameters = json.loads(proposition.parameters_json)
+        bound_parameter_names = {
+            item.parameter_name
+            for item in (
+                construction.event_attribute_bindings
+                + construction.temporal_parameter_bindings
+                + construction.relationship_parameter_bindings
+            )
+        }
+        for definition in semantics.parameters:
+            if definition.parameter_name not in parameters:
+                continue
+            value = parameters[definition.parameter_name]
+            if (
+                definition.parameter_name not in bound_parameter_names
+                and value != definition.default_value
+            ):
+                raise PropositionProvenanceError(
+                    f"non-default parameter has no registered construction binding: {definition.parameter_name}"
+                )
         events: dict[str, Event] = {}
         observations: dict[str, Observation] = {}
 
