@@ -23,6 +23,7 @@ from samaritan.proposition_construction import (
 from samaritan.proposition_construction_contracts import (
     EventAttributeParameterBinding,
     EntityRoleBinding,
+    EventRoleBinding,
     TemporalDifferenceParameterBinding,
     PropositionConstructionDefinition,
     ParticipantRoleBinding,
@@ -1085,9 +1086,7 @@ def _make_optional_role_constructor(repository, *, entity_required=False, parame
     construction = replace(
         base_construction,
         event_bindings=base_construction.event_bindings + (
-            __import__("samaritan.proposition_construction_contracts", fromlist=["EventRoleBinding"]).EventRoleBinding(
-                "device_event", "device_activity"
-            ),
+            EventRoleBinding("device_event", "device_activity"),
         ),
         entity_bindings=base_construction.entity_bindings + (
             EntityRoleBinding(
