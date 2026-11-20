@@ -391,6 +391,7 @@ class HypothesisEvaluationRule:
     rule_version: int
     proposition_type: str
     semantics_version: int
+    semantics_fingerprint: str
     criterion_definitions: tuple[CriterionDefinition, ...]
     bearing_definitions: tuple[BearingDefinition, ...]
     description: str
@@ -404,6 +405,11 @@ class HypothesisEvaluationRule:
             raise ValueError("rule_version must be a positive integer")
         if type(self.semantics_version) is not int or self.semantics_version < 1:
             raise ValueError("semantics_version must be a positive integer")
+        object.__setattr__(
+            self,
+            "semantics_fingerprint",
+            validate_text(self.semantics_fingerprint, "semantics_fingerprint"),
+        )
         if self.review_status not in DEFINITION_REVIEW_STATES:
             raise ValueError("unsupported evaluation rule review status")
         if not isinstance(self.criterion_definitions, tuple) or not self.criterion_definitions:
@@ -445,8 +451,14 @@ class HypothesisEvaluationRule:
     def validate_for(self, proposition: Proposition, production: bool = True) -> None:
         if not isinstance(proposition, Proposition):
             raise TypeError("proposition must be a Proposition")
-        if (self.proposition_type, self.semantics_version) != (
-            proposition.proposition_type, proposition.semantics_version
+        if (
+            self.proposition_type,
+            self.semantics_version,
+            self.semantics_fingerprint,
+        ) != (
+            proposition.proposition_type,
+            proposition.semantics_version,
+            proposition.semantics_fingerprint,
         ):
             raise ValueError("evaluation rule does not match exact proposition semantics")
         if self.review_status == "retired":
@@ -519,6 +531,8 @@ class HypothesisSpecification:
             if (
                 alternative.proposition.proposition_type != focal_proposition.proposition_type
                 or alternative.proposition.semantics_version != focal_proposition.semantics_version
+                or alternative.proposition.semantics_fingerprint
+                != focal_proposition.semantics_fingerprint
             ):
                 raise ValueError("all alternatives must use the focal proposition semantics")
         allowed_alternative_ids = set(ids) | {RESIDUAL_ALTERNATIVE_ID}
