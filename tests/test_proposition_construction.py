@@ -38,6 +38,11 @@ from samaritan.proposition_semantics import (
     build_default_proposition_semantics_registry,
 )
 from samaritan.repository import Repository
+from samaritan.proposition_contracts import (
+    PropositionFieldProvenance,
+    PropositionRoleValue,
+    deterministic_proposition_id,
+)
 from samaritan.proposition_validation import (
     PropositionProvenanceError,
     PropositionProvenanceValidator,
@@ -911,3 +916,135 @@ def test_provenance_validator_rejects_forged_event_observation_link(tmp_path):
     ):
         validator.validate(forged)
 
+
+
+def test_entity_role_provenance_allows_multiple_events_from_one_observation(tmp_path):
+    repository, source, start = make_repository(tmp_path)
+    account = Entity(
+        entity_id=new_id(),
+        entity_type="user_account",
+        canonical_identifier="shared-observation-account",
+        created_at=start,
+    )
+    host_time = start + timedelta(seconds=180)
+    observation = Observation(
+        observation_id=new_id(),
+        source_id=source.source_id,
+        received_at=host_time,
+        raw_payload="{}",
+        payload_sha256=payload_checksum("{}"),
+    )
+    event_specs = (
+        ("authentication_failure", "target", start),
+        ("authentication_success", "target", start + timedelta(seconds=90)),
+        ("host_activity", "subject", host_time),
+    )
+    events = tuple(
+        Event(
+            event_id=new_id(),
+            observation_id=observation.observation_id,
+            event_type=event_type,
+            occurred_at=occurred_at,
+            original_timestamp=occurred_at.isoformat().replace("+00:00", "Z"),
+            normalized_data_json="{}",
+            participants=(EventParticipant(account.entity_id, participant_role),),
+        )
+        for event_type, participant_role, occurred_at in event_specs
+    )
+    repository.persist_observation(
+        observation,
+        entities=(account,),
+        events=events,
+    )
+    evidence_set = EvidenceSet(
+        evidence_set_id=new_id(),
+        evidence=tuple(EvidenceReference(event_id=item.event_id) for item in events),
+        created_at=host_time + timedelta(minutes=1),
+    )
+
+    proposition = make_constructor(repository).construct(
+        evidence_set, "account_authentication_sequence", 1
+    )
+    account_provenance = {
+        item.field_name: item for item in proposition.field_provenance
+    }["account"]
+    assert account_provenance.event_ids == tuple(item.event_id for item in events)
+    assert account_provenance.observation_ids == (observation.observation_id,)
+
+
+def test_provenance_validator_rejects_populated_optional_role_without_binding(tmp_path):
+    repository, source, start = make_repository(tmp_path)
+    account = Entity(
+        entity_id=new_id(),
+        entity_type="user_account",
+        canonical_identifier="optional-role-account",
+        created_at=start,
+    )
+    _, evidence_set = _make_authentication_evidence(
+        repository, source, account, start
+    )
+    base_semantics = build_default_proposition_semantics_registry().get(
+        "account_authentication_sequence", 1
+    )
+    optional_role = PropositionRoleDefinition(
+        role_name="optional_event",
+        role_kind="event",
+        cardinality="one",
+        event_type="unregistered_optional_event",
+        meaning="An optional event not supported by this construction.",
+        required=False,
+    )
+    semantics_registry = PropositionSemanticsRegistry()
+    semantics_registry.register(
+        replace(base_semantics, roles=base_semantics.roles + (optional_role,))
+    )
+    construction_registry = build_default_proposition_construction_registry()
+    constructor = PropositionConstructor(
+        repository, semantics_registry, construction_registry
+    )
+    proposition = constructor.construct(
+        evidence_set, "account_authentication_sequence", 1
+    )
+
+    optional_event = persist_event(
+        repository,
+        source,
+        account,
+        "unregistered_optional_event",
+        "observer",
+        start + timedelta(seconds=240),
+    )
+    optional_value = PropositionRoleValue(
+        "optional_event",
+        "event",
+        optional_event.event_id,
+        optional_event.occurred_at,
+    )
+    optional_provenance = PropositionFieldProvenance(
+        "optional_event",
+        (optional_event.event_id,),
+        (optional_event.observation_id,),
+    )
+    roles = proposition.roles + (optional_value,)
+    field_provenance = proposition.field_provenance + (optional_provenance,)
+    forged = replace(
+        proposition,
+        proposition_id=deterministic_proposition_id(
+            proposition.proposition_type,
+            proposition.semantics_version,
+            roles,
+            proposition.temporal_scope,
+            proposition.parameters_json,
+        ),
+        roles=roles,
+        field_provenance=field_provenance,
+    )
+    validator = PropositionProvenanceValidator(
+        repository, semantics_registry, construction_registry
+    )
+
+    with pytest.raises(
+        PropositionProvenanceError,
+        match="exact registered construction bindings",
+    ):
+        validator.validate(forged)
