@@ -426,6 +426,14 @@ class HypothesisEvaluationRule:
                 raise ValueError("bearing references an undeclared criterion")
             if self.review_status == "approved" and bearing.review_status != "approved":
                 raise ValueError("approved rules require approved bearing definitions")
+        focal_judgments: dict[tuple[str, str], str] = {}
+        for bearing in self.bearing_definitions:
+            key = (bearing.criterion_id, bearing.outcome_code)
+            previous = focal_judgments.setdefault(key, bearing.focal_judgment)
+            if previous != bearing.focal_judgment:
+                raise ValueError(
+                    "focal judgment must be consistent across alternatives for each criterion outcome"
+                )
         keys = tuple((item.criterion_id, item.outcome_code, item.alternative_id) for item in self.bearing_definitions)
         if len(keys) != len(set(keys)):
             raise ValueError("duplicate bearing definition")
