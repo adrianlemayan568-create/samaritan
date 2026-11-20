@@ -11,6 +11,7 @@ from samaritan.proposition_contracts import (
     deterministic_proposition_id,
 )
 from samaritan.proposition_semantics import build_default_proposition_semantics_registry
+from samaritan.proposition_semantics_fingerprint import proposition_semantics_fingerprint
 
 
 def make_proposition():
@@ -31,8 +32,14 @@ def make_proposition():
         PropositionFieldProvenance("success_event", (events[1],), (str(uuid4()),)),
         PropositionFieldProvenance("host_activity_event", (events[2],), (str(uuid4()),)),
     )
+    semantics = build_default_proposition_semantics_registry().get(
+        "account_authentication_sequence", 1
+    )
+    semantics_fingerprint = proposition_semantics_fingerprint(semantics)
     proposition_id = deterministic_proposition_id(
-        "account_authentication_sequence", 1, roles, scope
+        "account_authentication_sequence", 1, roles, scope,
+        semantics_fingerprint=semantics_fingerprint,
+        identity_algorithm_version="uuid5-v2",
     )
     return Proposition(
         proposition_id=proposition_id,
@@ -43,6 +50,8 @@ def make_proposition():
         field_provenance=provenance,
         construction_id="account_authentication_sequence",
         construction_version=1,
+        semantics_fingerprint=semantics_fingerprint,
+        identity_algorithm_version="uuid5-v2",
     )
 
 
@@ -65,6 +74,8 @@ def test_proposition_identity_is_deterministic_and_ignores_construction_history(
         field_provenance=proposition.field_provenance,
         construction_id="different-construction-history",
         construction_version=9,
+        semantics_fingerprint=proposition.semantics_fingerprint,
+        identity_algorithm_version=proposition.identity_algorithm_version,
     )
     assert same_identity.proposition_id == proposition.proposition_id
 
@@ -84,6 +95,8 @@ def test_temporal_scope_must_match_semantic_boundaries():
         field_provenance=proposition.field_provenance,
         construction_id=proposition.construction_id,
         construction_version=1,
+        semantics_fingerprint=proposition.semantics_fingerprint,
+        identity_algorithm_version=proposition.identity_algorithm_version,
     )
     semantics = build_default_proposition_semantics_registry().get(
         "account_authentication_sequence", 1
@@ -149,6 +162,8 @@ def test_proposition_identity_must_match_semantic_content():
         field_provenance=proposition.field_provenance,
         construction_id=proposition.construction_id,
         construction_version=proposition.construction_version,
+        semantics_fingerprint=proposition.semantics_fingerprint,
+        identity_algorithm_version=proposition.identity_algorithm_version,
     )
     semantics = build_default_proposition_semantics_registry().get(
         "account_authentication_sequence", 1
