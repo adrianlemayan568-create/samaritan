@@ -674,3 +674,34 @@ def test_any_required_bearing_makes_criterion_required_for_completeness():
     assert result.outcome == "inconclusive"
     assert "required_criteria_incomplete" in result.reason_codes
     assert f"missing_finding:{first_criterion.criterion_id}" in result.reason_codes
+
+
+
+def test_rule_rejects_conflicting_focal_judgments_for_same_criterion_outcome():
+    specification, _, _ = make_specification()
+    original = specification.evaluation_rule
+    first, second = original.bearing_definitions
+    contradictory = BearingDefinition(
+        criterion_id=second.criterion_id,
+        outcome_code=second.outcome_code,
+        alternative_id=second.alternative_id,
+        focal_judgment="incompatible",
+        alternative_judgment=second.alternative_judgment,
+        evaluability_role=second.evaluability_role,
+        rationale=second.rationale,
+        basis=second.basis,
+        author=second.author,
+        review_status=second.review_status,
+    )
+
+    with pytest.raises(ValueError, match="focal judgment must be consistent"):
+        HypothesisEvaluationRule(
+            evaluation_rule_id=original.evaluation_rule_id,
+            rule_version=original.rule_version,
+            proposition_type=original.proposition_type,
+            semantics_version=original.semantics_version,
+            criterion_definitions=original.criterion_definitions,
+            bearing_definitions=(first, contradictory),
+            description=original.description,
+            review_status=original.review_status,
+        )
