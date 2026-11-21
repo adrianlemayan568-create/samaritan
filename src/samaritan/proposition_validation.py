@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 
 from samaritan.contracts import Entity, Event, Observation, Relationship
-from samaritan.database import DatabaseIntegrityError
+from samaritan.database import DatabaseError, DatabaseIntegrityError
 from samaritan.proposition_construction_contracts import PropositionConstructionRegistry
 from samaritan.proposition_contracts import Proposition
 from samaritan.proposition_semantics import PropositionSemanticsRegistry
@@ -48,6 +49,27 @@ class PropositionProvenanceValidator:
         self.construction_registry = construction_registry
 
     def validate(self, proposition: Proposition) -> None:
+        """Validate provenance and normalize expected repository-boundary failures."""
+        if type(proposition) is not Proposition:
+            raise TypeError("proposition must be a Proposition")
+        try:
+            self._validate(proposition)
+        except PropositionProvenanceError:
+            raise
+        except (
+            DatabaseError,
+            sqlite3.Error,
+            KeyError,
+            TypeError,
+            AttributeError,
+            UnicodeError,
+            ValueError,
+        ) as exc:
+            raise PropositionProvenanceError(
+                f"proposition provenance validation failed: {exc}"
+            ) from exc
+
+    def _validate(self, proposition: Proposition) -> None:
         """Raise when any claimed field provenance is not supported by stored records."""
         if type(proposition) is not Proposition:
             raise TypeError("proposition must be a Proposition")
