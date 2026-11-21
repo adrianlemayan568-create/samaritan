@@ -88,7 +88,7 @@ class CriterionDefinition:
             object.__setattr__(self, name, validate_text(getattr(self, name), name))
         object.__setattr__(self, "parameters_json", _json_object(self.parameters_json, "parameters_json"))
         if not isinstance(self.parameter_definitions, tuple) or not all(
-            isinstance(item, CriterionParameterDefinition) for item in self.parameter_definitions
+            type(item) is CriterionParameterDefinition for item in self.parameter_definitions
         ):
             raise TypeError("parameter_definitions must be a tuple of CriterionParameterDefinition objects")
         parameter_names = tuple(item.parameter_name for item in self.parameter_definitions)
@@ -175,7 +175,7 @@ class CriterionEvaluatorDefinition:
         if self.evaluator_type not in SUPPORTED_EVALUATOR_TYPES:
             raise ValueError("unsupported built-in evaluator type")
         if not isinstance(self.parameter_definitions, tuple) or not all(
-            isinstance(item, CriterionParameterDefinition) for item in self.parameter_definitions
+            type(item) is CriterionParameterDefinition for item in self.parameter_definitions
         ):
             raise TypeError("parameter_definitions must be a tuple of CriterionParameterDefinition objects")
         names = tuple(item.parameter_name for item in self.parameter_definitions)
@@ -254,7 +254,7 @@ class CriterionEvaluatorRegistry:
         }[definition.evaluator_type]
 
     def validate_criterion(self, criterion: CriterionDefinition) -> CriterionEvaluatorDefinition:
-        if not isinstance(criterion, CriterionDefinition):
+        if not type(criterion) is CriterionDefinition:
             raise TypeError("criterion must be CriterionDefinition")
         definition = self.get(criterion.criterion_type, criterion.evaluator_version)
         if criterion.parameter_definitions != definition.parameter_definitions:
@@ -376,7 +376,7 @@ class CriterionFinding:
         _schema(self.schema_version, "criterion finding")
 
     def validate_against(self, criterion: CriterionDefinition, outcomes: CriterionOutcomeRegistry) -> None:
-        if not isinstance(criterion, CriterionDefinition):
+        if not type(criterion) is CriterionDefinition:
             raise TypeError("criterion must be CriterionDefinition")
         if self.criterion_id != criterion.criterion_id:
             raise ValueError("finding criterion ID does not match its definition")
@@ -395,7 +395,7 @@ class HypothesisAlternative:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "alternative_id", validate_id(self.alternative_id, "alternative_id"))
-        if not isinstance(self.proposition, Proposition):
+        if type(self.proposition) is not Proposition:
             raise TypeError("proposition must be a Proposition")
         object.__setattr__(self, "description", validate_text(self.description, "description"))
         _schema(self.schema_version, "hypothesis alternative")
@@ -466,11 +466,11 @@ class HypothesisEvaluationRule:
             raise ValueError("unsupported evaluation rule review status")
         if not isinstance(self.criterion_definitions, tuple) or not self.criterion_definitions:
             raise TypeError("criterion_definitions must be a non-empty tuple")
-        if not all(isinstance(item, CriterionDefinition) for item in self.criterion_definitions):
+        if not all(type(item) is CriterionDefinition for item in self.criterion_definitions):
             raise TypeError("criterion_definitions must contain CriterionDefinition objects")
         if not isinstance(self.bearing_definitions, tuple) or not self.bearing_definitions:
             raise TypeError("bearing_definitions must be a non-empty tuple")
-        if not all(isinstance(item, BearingDefinition) for item in self.bearing_definitions):
+        if not all(type(item) is BearingDefinition for item in self.bearing_definitions):
             raise TypeError("bearing_definitions must contain BearingDefinition objects")
         ids = tuple(item.criterion_id for item in self.criterion_definitions)
         if len(ids) != len(set(ids)):
@@ -505,9 +505,9 @@ class HypothesisEvaluationRule:
         alternative_ids: tuple[str, ...],
     ) -> None:
         """Fail before evaluation if any built-in outcome lacks a complete bearing set."""
-        if not isinstance(evaluator_registry, CriterionEvaluatorRegistry):
+        if type(evaluator_registry) is not CriterionEvaluatorRegistry:
             raise TypeError("evaluator_registry must be a CriterionEvaluatorRegistry")
-        if not isinstance(outcome_registry, CriterionOutcomeRegistry):
+        if type(outcome_registry) is not CriterionOutcomeRegistry:
             raise TypeError("outcome_registry must be a CriterionOutcomeRegistry")
         expected_alternatives = set(alternative_ids) | {RESIDUAL_ALTERNATIVE_ID}
         for criterion in self.criterion_definitions:
@@ -599,12 +599,12 @@ class HypothesisSpecification:
     schema_version: int = SCHEMA_VERSION
 
     def __post_init__(self) -> None:
-        if not isinstance(self.hypothesis, StructuredHypothesis):
+        if type(self.hypothesis) is not StructuredHypothesis:
             raise TypeError("hypothesis must be a StructuredHypothesis")
         focal_proposition = self.hypothesis.proposition
         if not isinstance(self.alternatives, tuple) or not self.alternatives:
             raise ValueError("at least one declared alternative is required")
-        if not all(isinstance(item, HypothesisAlternative) for item in self.alternatives):
+        if not all(type(item) is HypothesisAlternative for item in self.alternatives):
             raise TypeError("alternatives must contain HypothesisAlternative objects")
         ids = tuple(item.alternative_id for item in self.alternatives)
         proposition_ids = tuple(item.proposition.proposition_id for item in self.alternatives)
@@ -614,7 +614,7 @@ class HypothesisSpecification:
             raise ValueError("an alternative cannot duplicate the focal proposition")
         if len(proposition_ids) != len(set(proposition_ids)):
             raise ValueError("alternative propositions must be unique")
-        if not isinstance(self.evaluation_rule, HypothesisEvaluationRule):
+        if type(self.evaluation_rule) is not HypothesisEvaluationRule:
             raise TypeError("evaluation_rule must be HypothesisEvaluationRule")
         for alternative in self.alternatives:
             if (
@@ -678,7 +678,7 @@ class DiagnosticitySynthesis:
         if self.confidence_ceiling not in {"low", "moderate", "high"}:
             raise ValueError("unsupported confidence ceiling")
         if not isinstance(self.alternative_standings, tuple) or not all(
-            isinstance(item, AlternativeStanding) for item in self.alternative_standings
+            type(item) is AlternativeStanding for item in self.alternative_standings
         ):
             raise TypeError("alternative_standings must be a tuple of AlternativeStanding objects")
         if not isinstance(self.reason_codes, tuple):
@@ -717,7 +717,7 @@ class HypothesisEvaluationRecord:
             raise ValueError("evaluation_rule_version must be a positive integer")
         object.__setattr__(self, "evaluated_at", normalize_timestamp(self.evaluated_at, "evaluated_at"))
         if not isinstance(self.findings, tuple) or not all(
-            isinstance(item, CriterionFinding) for item in self.findings
+            type(item) is CriterionFinding for item in self.findings
         ):
             raise TypeError("findings must be a tuple of CriterionFinding objects")
         criterion_ids = tuple(item.criterion_id for item in self.findings)
@@ -728,7 +728,7 @@ class HypothesisEvaluationRecord:
         _schema(self.schema_version, "hypothesis evaluation record")
 
     def validate_against(self, specification: HypothesisSpecification) -> None:
-        if not isinstance(specification, HypothesisSpecification):
+        if type(specification) is not HypothesisSpecification:
             raise TypeError("specification must be a HypothesisSpecification")
         if self.hypothesis_id != specification.hypothesis.hypothesis_id:
             raise ValueError("evaluation hypothesis ID does not match specification")
