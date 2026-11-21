@@ -346,26 +346,27 @@ class PropositionProvenanceValidator:
         # Resolve all parameter sources with the same pure selection logic
         # used by construction, then compare the full value/provenance projection.
         selected_relationships: list[Relationship] = []
-        for observation_id in manifest_selected_observation_ids:
-            offset = 0
-            while True:
-                batch = self.repository.list_relationships(
-                    observation_id=observation_id, limit=500, offset=offset
-                )
-                if not isinstance(batch, tuple) or not all(
-                    type(item) is Relationship for item in batch
-                ):
-                    raise PropositionProvenanceError(
-                        "repository returned invalid relationship records"
+        if construction.relationship_parameter_bindings:
+            for observation_id in manifest_selected_observation_ids:
+                offset = 0
+                while True:
+                    batch = self.repository.list_relationships(
+                        observation_id=observation_id, limit=500, offset=offset
                     )
-                if any(item.observation_id != observation_id for item in batch):
-                    raise PropositionProvenanceError(
-                        "selected relationship has mismatched observation provenance"
-                    )
-                selected_relationships.extend(batch)
-                if len(batch) < 500:
-                    break
-                offset += 500
+                    if not isinstance(batch, tuple) or not all(
+                        type(item) is Relationship for item in batch
+                    ):
+                        raise PropositionProvenanceError(
+                            "repository returned invalid relationship records"
+                        )
+                    if any(item.observation_id != observation_id for item in batch):
+                        raise PropositionProvenanceError(
+                            "selected relationship has mismatched observation provenance"
+                        )
+                    selected_relationships.extend(batch)
+                    if len(batch) < 500:
+                        break
+                    offset += 500
 
         try:
             expected_parameters = resolve_parameter_values(
