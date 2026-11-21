@@ -236,6 +236,17 @@ class CriterionEvaluatorRegistry:
         except KeyError as exc:
             raise KeyError(f"unknown criterion evaluator: {key[0]}@{key[1]}") from exc
 
+    def output_codes_for(self, criterion: CriterionDefinition) -> tuple[str, ...]:
+        """Return the finite outcome codes emitted by a built-in evaluator."""
+        definition = self.validate_criterion(criterion)
+        return {
+            "event_attribute_equals": ("equal", "not_equal"),
+            "event_attribute_present": ("present",),
+            "event_type_count": ("threshold_met", "threshold_not_met"),
+            "participant_role_matches_proposition_role": ("matches", "does_not_match"),
+            "temporal_gap_within": ("within_limit", "exceeds_limit", "ordering_violation"),
+        }[definition.evaluator_type]
+
     def validate_criterion(self, criterion: CriterionDefinition) -> CriterionEvaluatorDefinition:
         if not isinstance(criterion, CriterionDefinition):
             raise TypeError("criterion must be CriterionDefinition")
@@ -272,6 +283,20 @@ class CriterionOutcomeRegistry:
             return self._definitions[key]
         except KeyError as exc:
             raise KeyError(f"unregistered criterion outcome: {key[0]}@{key[1]}:{key[2]}") from exc
+
+    def list_for(
+        self, criterion_type: str, vocabulary_version: int
+    ) -> tuple[CriterionOutcomeDefinition, ...]:
+        """Return the complete registered outcome vocabulary in stable order."""
+        if type(vocabulary_version) is not int or vocabulary_version < 1:
+            raise ValueError("vocabulary_version must be a positive integer")
+        return tuple(sorted(
+            (
+                item for (kind, version, _), item in self._definitions.items()
+                if kind == criterion_type and version == vocabulary_version
+            ),
+            key=lambda item: item.outcome_code,
+        ))
 
     def contains(self, criterion_type: str, vocabulary_version: int, outcome_code: str) -> bool:
         return (criterion_type, vocabulary_version, outcome_code) in self._definitions
@@ -445,6 +470,37 @@ class HypothesisEvaluationRule:
         if len(keys) != len(set(keys)):
             raise ValueError("duplicate bearing definition")
         _schema(self.schema_version, "hypothesis evaluation rule")
+
+    def validate_outcome_coverage(
+        self,
+        evaluator_registry: CriterionEvaluatorRegistry,
+        outcome_registry: CriterionOutcomeRegistry,
+        alternative_ids: tuple[str, ...],
+    ) -> None:
+        """Fail before evaluation if any built-in outcome lacks a complete bearing set."""
+        if not isinstance(evaluator_registry, CriterionEvaluatorRegistry):
+            raise TypeError("evaluator_registry must be a CriterionEvaluatorRegistry")
+        if not isinstance(outcome_registry, CriterionOutcomeRegistry):
+            raise TypeError("outcome_registry must be a CriterionOutcomeRegistry")
+        expected_alternatives = set(alternative_ids) | {RESIDUAL_ALTERNATIVE_ID}
+        for criterion in self.criterion_definitions:
+            for code in evaluator_registry.output_codes_for(criterion):
+                outcome_registry.get(
+                    criterion.criterion_type,
+                    criterion.outcome_vocabulary_version,
+                    code,
+                )
+                for alternative_id in expected_alternatives:
+                    if not any(
+                        item.criterion_id == criterion.criterion_id
+                        and item.outcome_code == code
+                        and item.alternative_id == alternative_id
+                        for item in self.bearing_definitions
+                    ):
+                        raise ValueError(
+                            "incomplete bearing coverage for "
+                            f"{criterion.criterion_id}:{code}:{alternative_id}"
+                        )
 
     def validate_for(self, proposition: Proposition, production: bool = True) -> None:
         if not isinstance(proposition, Proposition):
