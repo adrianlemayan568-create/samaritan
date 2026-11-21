@@ -571,19 +571,30 @@ def test_relationship_parameter_binding_requires_selected_observation_and_preser
             construction_registry,
         ).validate(forged)
 
-    # A repeated full page must fail in both construction and validation.
-    repeated_relationship_page = (relationship, relationship)
+    # Simulate a repository that ignores offset and returns the same full page.
+    repeated_relationship_page = tuple(
+        replace(relationship, relationship_id=new_id())
+        for _ in range(500)
+    )
+    relationship_offsets = []
+
+    def repeated_relationship_pages(*, offset, **_kwargs):
+        relationship_offsets.append(offset)
+        return repeated_relationship_page
+
     monkeypatch.setattr(
         repository,
         "list_relationships",
-        lambda **_kwargs: repeated_relationship_page,
+        repeated_relationship_pages,
     )
     with pytest.raises(
         DatabaseIntegrityError,
         match="pagination repeated a relationship record",
     ):
         constructor._load_relationships({observation.observation_id: observation})
+    assert relationship_offsets == [0, 500]
 
+    relationship_offsets.clear()
     with pytest.raises(
         PropositionProvenanceError,
         match="pagination repeated a relationship record",
@@ -593,6 +604,7 @@ def test_relationship_parameter_binding_requires_selected_observation_and_preser
             semantics_registry,
             construction_registry,
         ).validate(proposition)
+    assert relationship_offsets == [0, 500]
     assert proposition.parameters_json == (
         '{"account_device_relationship_id":"' + relationship.relationship_id + '"}'
     )
@@ -2112,14 +2124,21 @@ def test_manifest_event_pagination_rejects_repeated_event_ids(tmp_path, monkeypa
         evidence_set_id=new_id(),
         evidence=(EvidenceReference(observation_id=event.observation_id),),
     )
-    monkeypatch.setattr(
-        repository,
-        "list_events",
-        lambda **_kwargs: (event, event),
+    repeated_event_page = tuple(
+        replace(event, event_id=new_id())
+        for _ in range(500)
     )
+    offsets = []
+
+    def repeated_event_pages(*, offset, **_kwargs):
+        offsets.append(offset)
+        return repeated_event_page
+
+    monkeypatch.setattr(repository, "list_events", repeated_event_pages)
 
     with pytest.raises(
         DatabaseIntegrityError,
         match="pagination repeated an event record",
     ):
         resolve_manifest_selection(repository, manifest)
+    assert offsets == [0, 500]
