@@ -207,7 +207,7 @@ class Proposition:
 
     def validate_against(self, semantics: PropositionSemantics) -> None:
         """Validate role shape, types, temporal constraints and parameters against exact semantics."""
-        if not isinstance(semantics, PropositionSemantics):
+        if type(semantics) is not PropositionSemantics:
             raise TypeError("semantics must be PropositionSemantics")
         if (self.proposition_type, self.semantics_version) != (
             semantics.proposition_type, semantics.semantics_version
