@@ -229,16 +229,17 @@ def resolve_event_roles(
         role_options.append((role_name, definition.required, tuple(candidates)))
 
     # Search for complete assignments, pruning as soon as a registered entity
-    # role would resolve to conflicting participant IDs. Stop after two results:
-    # one proves uniqueness; two are sufficient to prove ambiguity.
+    # role would resolve to conflicting participant IDs. Among valid assignments,
+    # prefer those that resolve the greatest number of optional event roles. This
+    # omits an optional role only when no globally consistent assignment can use it.
     solutions: list[tuple[tuple[str, Event], ...]] = []
+    best_optional_count = -1
     assignment: list[tuple[str, Event]] = []
     assigned_entities: dict[str, str] = {}
     used_event_ids: dict[str, str] = {}
 
-    def search(index: int) -> None:
-        if len(solutions) >= 2:
-            return
+    def search(index: int, optional_count: int) -> None:
+        nonlocal best_optional_count
         if index == len(role_options):
             selected_role_names = {name for name, _ in assignment}
             for entity_binding in construction.entity_bindings:
@@ -246,32 +247,49 @@ def resolve_event_roles(
                 dependency_roles = {
                     item.event_role for item in entity_binding.participant_bindings
                 }
-                if not dependency_roles.issubset(selected_role_names) and entity_definition.required:
+                if (
+                    not dependency_roles.issubset(selected_role_names)
+                    and entity_definition.required
+                ):
                     return
-                if dependency_roles.issubset(selected_role_names) and entity_binding.semantic_role not in assigned_entities:
+                if (
+                    dependency_roles.issubset(selected_role_names)
+                    and entity_binding.semantic_role not in assigned_entities
+                ):
                     return
-            solutions.append(tuple(assignment))
+            if optional_count > best_optional_count:
+                best_optional_count = optional_count
+                solutions.clear()
+            if optional_count == best_optional_count and len(solutions) < 2:
+                solutions.append(tuple(assignment))
+            return
+
+        remaining_optional = sum(
+            not item[1] for item in role_options[index:]
+        )
+        if optional_count + remaining_optional < best_optional_count:
+            return
+        if (
+            optional_count + remaining_optional == best_optional_count
+            and len(solutions) >= 2
+        ):
             return
 
         role_name, required_role, candidates = role_options[index]
-        # An optional event role is omitted only when no candidate satisfies
-        # its own registered participant constraints.
         choices: tuple[tuple[Event, dict[str, str]] | None, ...]
-        choices = candidates if candidates else (None,)
+        choices = candidates + ((None,) if not required_role else ())
         for choice in choices:
             if choice is None:
-                search(index + 1)
+                search(index + 1, optional_count)
                 continue
             event, candidate_entities = choice
-            previous_role = used_event_ids.get(event.event_id)
-            if previous_role is not None:
+            if event.event_id in used_event_ids:
                 continue
-            conflicts = any(
+            if any(
                 entity_role in assigned_entities
                 and assigned_entities[entity_role] != entity_id
                 for entity_role, entity_id in candidate_entities.items()
-            )
-            if conflicts:
+            ):
                 continue
 
             newly_assigned = [
@@ -282,13 +300,16 @@ def resolve_event_roles(
                 assigned_entities[entity_role] = candidate_entities[entity_role]
             used_event_ids[event.event_id] = role_name
             assignment.append((role_name, event))
-            search(index + 1)
+            search(
+                index + 1,
+                optional_count + (0 if required_role else 1),
+            )
             assignment.pop()
             del used_event_ids[event.event_id]
             for entity_role in newly_assigned:
                 del assigned_entities[entity_role]
 
-    search(0)
+    search(0, 0)
     if not solutions:
         raise EvidenceSelectionError(
             "no complete event-role assignment satisfies all registered participant constraints"
