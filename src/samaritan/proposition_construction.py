@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 
-from samaritan.analysis_contracts import EvidenceReference
 from samaritan.contracts import Entity, Event, Observation, Relationship
 from samaritan.database import DatabaseIntegrityError
 from samaritan.evaluation_contracts import EvidenceSet
