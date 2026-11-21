@@ -120,6 +120,8 @@ class HypothesisEvaluationEngine:
                 "finding_ids": sorted(item.finding_id for item in findings),
                 "outcome": synthesis.outcome,
                 "confidence_ceiling": synthesis.confidence_ceiling,
+                "reason_codes": synthesis.reason_codes,
+                "summary": synthesis.summary,
                 "alternative_standings": [
                     {
                         "alternative_id": item.alternative_id,
