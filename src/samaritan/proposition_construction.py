@@ -348,7 +348,9 @@ class PropositionConstructor:
                     limit=500,
                     offset=offset,
                 )
-                if not isinstance(batch, tuple):
+                if not isinstance(batch, tuple) or not all(
+                    type(item) is Relationship for item in batch
+                ):
                     raise DatabaseIntegrityError("repository returned invalid relationship records")
                 for relationship in batch:
                     if relationship.observation_id != observation_id:
