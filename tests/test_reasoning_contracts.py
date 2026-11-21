@@ -777,6 +777,9 @@ def test_rule_registry_allows_multiple_immutable_versions_of_one_rule_identity()
 
     assert registry.get(first.evaluation_rule_id, first.rule_version) is first
     assert registry.get(second.evaluation_rule_id, second.rule_version) is second
+    registry.freeze()
+    with pytest.raises(RuntimeError, match="registry is frozen"):
+        registry.register(replace(second, rule_version=second.rule_version + 1))
 
 
 def test_residual_bearing_must_share_focal_judgment_with_declared_alternative():
