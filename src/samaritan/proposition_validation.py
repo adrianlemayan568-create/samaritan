@@ -40,6 +40,8 @@ class PropositionProvenanceValidator:
             raise TypeError("semantics_registry must be a PropositionSemanticsRegistry")
         if type(construction_registry) is not PropositionConstructionRegistry:
             raise TypeError("construction_registry must be a PropositionConstructionRegistry")
+        semantics_registry.freeze()
+        construction_registry.freeze()
         self.repository = repository
         self.semantics_registry = semantics_registry
         self.construction_registry = construction_registry
