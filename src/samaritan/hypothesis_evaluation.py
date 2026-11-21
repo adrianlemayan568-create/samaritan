@@ -69,6 +69,22 @@ class HypothesisEvaluationEngine:
         self.rule_registry = rule_registry
         self.synthesizer = DiagnosticitySynthesizer()
 
+    def _authenticate_evidence_manifest(self, proposition) -> EvidenceSet:
+        """Require a proposition's manifest to match its persisted construction selection."""
+        manifest = proposition.evidence_manifest
+        persisted_evidence_set = self.repository.get_evidence_set(
+            manifest.evidence_set_id
+        )
+        if (
+            persisted_evidence_set is None
+            or persisted_evidence_set.evidence_set_id != manifest.evidence_set_id
+            or persisted_evidence_set.evidence != manifest.evidence
+        ):
+            raise ValueError(
+                "proposition evidence manifest must match its persisted historical selection"
+            )
+        return persisted_evidence_set
+
     def evaluate(
         self,
         specification: HypothesisSpecification,
@@ -92,25 +108,20 @@ class HypothesisEvaluationEngine:
                 "evaluation EvidenceSet must exactly match the focal proposition evidence manifest"
             )
 
-        persisted_evidence_set = self.repository.get_evidence_set(
-            focal_proposition.evidence_manifest.evidence_set_id
+        # Authenticate the historical construction selection for every
+        # proposition before any criterion evaluator can run. Alternatives
+        # retain their own construction evidence; comparative evaluation
+        # below still uses only the focal proposition's EvidenceSet.
+        propositions = (
+            focal_proposition,
+            *(item.proposition for item in specification.alternatives),
         )
-        if (
-            persisted_evidence_set is None
-            or persisted_evidence_set.evidence_set_id != evidence_set.evidence_set_id
-            or persisted_evidence_set.evidence != evidence_set.evidence
-        ):
-            raise ValueError(
-                "evaluation EvidenceSet must match the persisted historical selection"
-            )
+        for proposition in propositions:
+            self._authenticate_evidence_manifest(proposition)
 
         # A fingerprint supplied by a Proposition is only a claim until
         # checked against the authoritative semantics registry. Evaluation
         # accepts only the current fingerprint-bound identity algorithm.
-        propositions = (
-            specification.hypothesis.proposition,
-            *(item.proposition for item in specification.alternatives),
-        )
         for proposition in propositions:
             if proposition.identity_algorithm_version != CURRENT_PROPOSITION_IDENTITY_ALGORITHM:
                 raise ValueError(
