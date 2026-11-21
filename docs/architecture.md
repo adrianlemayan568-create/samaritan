@@ -31,7 +31,7 @@ M2.4 keeps proposition semantics separate from construction definitions. Semanti
 
 Criterion findings are stance-neutral and reusable. Versioned bearing definitions interpret findings against a focal proposition and each declared alternative. Diagnosticity synthesis is ordinal and deterministic; it does not calculate probabilities.
 
-No analytical persistence migration is introduced until these contracts stabilize. See m2.4-analytical-foundation.md for the complete model and limitations.
+M7 adds append-only EvidenceSet selection records to SQLite. Proposition construction persists the exact selection before emitting a proposition, and provenance validation checks the manifest against that stored record. The database migrates from schema version 1 to 2 without rewriting existing source records. Proposition and evaluation records themselves are not yet persisted. See m2.4-analytical-foundation.md for the complete model and limitations.
 
 ## Evidence integrity
 
