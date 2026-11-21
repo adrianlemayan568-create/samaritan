@@ -1,4 +1,5 @@
 from dataclasses import replace
+import sqlite3
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -1744,3 +1745,118 @@ def test_constructor_freezes_semantics_and_construction_registries(tmp_path):
                 "account_authentication_sequence", 1
             )
         )
+
+def _repository_failure(failure):
+    if failure == "key_error":
+        return KeyError("simulated missing repository field")
+    if failure == "sqlite_error":
+        return sqlite3.OperationalError("simulated repository failure")
+    if failure == "unicode_error":
+        return UnicodeEncodeError(
+            "utf-8", "\ud800", 0, 1, "simulated invalid Unicode"
+        )
+    if failure == "attribute_error":
+        return AttributeError("simulated malformed repository record")
+    raise AssertionError(f"unknown failure case: {failure}")
+
+
+@pytest.mark.parametrize(
+    "failure",
+    ["key_error", "sqlite_error", "unicode_error", "attribute_error"],
+)
+def test_constructor_normalizes_expected_repository_boundary_failures(
+    tmp_path, monkeypatch, failure
+):
+    repository, source, start = make_repository(tmp_path)
+    account = Entity(
+        entity_id=new_id(),
+        entity_type="user_account",
+        canonical_identifier=f"constructor-boundary-{failure}",
+        created_at=start,
+    )
+    events = (
+        persist_event(
+            repository, source, account, "authentication_failure", "target", start
+        ),
+        persist_event(
+            repository, source, account, "authentication_success", "target",
+            start + timedelta(seconds=90),
+        ),
+        persist_event(
+            repository, source, account, "host_activity", "subject",
+            start + timedelta(seconds=180),
+        ),
+    )
+    evidence_set = EvidenceSet(
+        evidence_set_id=new_id(),
+        evidence=tuple(EvidenceReference(event_id=item.event_id) for item in events),
+        created_at=start + timedelta(minutes=4),
+    )
+    original_error = _repository_failure(failure)
+
+    def fail_get_event(_event_id):
+        raise original_error
+
+    monkeypatch.setattr(repository, "get_event", fail_get_event)
+
+    with pytest.raises(PropositionConstructionError) as captured:
+        make_constructor(repository).construct(
+            evidence_set, "account_authentication_sequence", 1
+        )
+
+    assert captured.value.__cause__ is original_error
+
+
+@pytest.mark.parametrize(
+    "failure",
+    ["key_error", "sqlite_error", "unicode_error", "attribute_error"],
+)
+def test_validator_normalizes_expected_repository_boundary_failures(
+    tmp_path, monkeypatch, failure
+):
+    repository, source, start = make_repository(tmp_path)
+    account = Entity(
+        entity_id=new_id(),
+        entity_type="user_account",
+        canonical_identifier=f"validator-boundary-{failure}",
+        created_at=start,
+    )
+    events = (
+        persist_event(
+            repository, source, account, "authentication_failure", "target", start
+        ),
+        persist_event(
+            repository, source, account, "authentication_success", "target",
+            start + timedelta(seconds=90),
+        ),
+        persist_event(
+            repository, source, account, "host_activity", "subject",
+            start + timedelta(seconds=180),
+        ),
+    )
+    evidence_set = EvidenceSet(
+        evidence_set_id=new_id(),
+        evidence=tuple(EvidenceReference(event_id=item.event_id) for item in events),
+        created_at=start + timedelta(minutes=4),
+    )
+    constructor = make_constructor(repository)
+    proposition = constructor.construct(
+        evidence_set, "account_authentication_sequence", 1
+    )
+    original_error = _repository_failure(failure)
+
+    def fail_get_event(_event_id):
+        raise original_error
+
+    monkeypatch.setattr(repository, "get_event", fail_get_event)
+    validator = PropositionProvenanceValidator(
+        repository,
+        constructor.semantics_registry,
+        constructor.construction_registry,
+    )
+
+    with pytest.raises(PropositionProvenanceError) as captured:
+        validator.validate(proposition)
+
+    assert captured.value.__cause__ is original_error
+
