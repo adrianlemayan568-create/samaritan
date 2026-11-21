@@ -325,7 +325,7 @@ def test_hypothesis_evaluation_engine_runs_findings_and_synthesis_end_to_end(tmp
             criterion_id=criterion.criterion_id,
             outcome_code="not_equal",
             alternative_id=RESIDUAL_ALTERNATIVE_ID,
-            focal_judgment="unexpected",
+            focal_judgment="incompatible",
             alternative_judgment="compatible",
             evaluability_role="contextual",
             rationale="The residual remains broadly compatible.",
