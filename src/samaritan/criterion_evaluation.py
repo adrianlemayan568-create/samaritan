@@ -41,13 +41,13 @@ class CriterionEvaluationEngine:
             raise TypeError("evaluator_registry must be a CriterionEvaluatorRegistry")
         if type(outcome_registry) is not CriterionOutcomeRegistry:
             raise TypeError("outcome_registry must be a CriterionOutcomeRegistry")
+        if clock is not None and not callable(clock):
+            raise TypeError("clock must be callable")
         evaluator_registry.freeze()
         outcome_registry.freeze()
         self.repository = repository
         self.evaluator_registry = evaluator_registry
         self.outcome_registry = outcome_registry
-        if clock is not None and not callable(clock):
-            raise TypeError("clock must be callable")
         self.clock = clock if clock is not None else (lambda: datetime.now(timezone.utc))
 
     def evaluate(
