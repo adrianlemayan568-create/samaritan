@@ -328,7 +328,7 @@ class PropositionConstructor:
                 self.semantics_registry,
                 self.construction_registry,
             ).validate(proposition)
-        except (TypeError, ValueError) as exc:
+        except ValueError as exc:
             raise PropositionConstructionError(
                 f"constructed proposition failed semantic or provenance validation: {exc}"
             ) from exc
