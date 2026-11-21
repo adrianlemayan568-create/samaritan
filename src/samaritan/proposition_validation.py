@@ -126,7 +126,8 @@ class PropositionProvenanceValidator:
         # Resolve the immutable evidence-selection manifest independently of
         # field provenance. Unused selected evidence remains selection context,
         # not supporting provenance.
-        manifest_observation_ids: set[str] = set()
+        manifest_selected_observation_ids: set[str] = set()
+        manifest_provenance_observation_ids: set[str] = set()
         manifest_event_ids: set[str] = set()
         for reference in proposition.evidence_manifest.evidence:
             if reference.event_id is not None:
@@ -137,10 +138,11 @@ class PropositionProvenanceValidator:
                 # to compare against.
                 observation = load_observation(event.observation_id)
                 manifest_event_ids.add(event.event_id)
-                manifest_observation_ids.add(observation.observation_id)
+                manifest_provenance_observation_ids.add(observation.observation_id)
             else:
                 observation = load_observation(reference.observation_id)
-                manifest_observation_ids.add(observation.observation_id)
+                manifest_selected_observation_ids.add(observation.observation_id)
+                manifest_provenance_observation_ids.add(observation.observation_id)
                 offset = 0
                 while True:
                     batch = self.repository.list_events(
@@ -178,7 +180,7 @@ class PropositionProvenanceValidator:
                     )
             for observation_id in item.observation_ids:
                 load_observation(observation_id)
-                if observation_id not in manifest_observation_ids:
+                if observation_id not in manifest_provenance_observation_ids:
                     raise PropositionProvenanceError(
                         f"field provenance observation is outside the evidence manifest: {item.field_name}"
                     )
@@ -382,7 +384,7 @@ class PropositionProvenanceValidator:
                         f"bound relationship parameter has no provenance: {binding.parameter_name}"
                     )
                 candidate_matches: list[Relationship] = []
-                for observation_id in manifest_observation_ids:
+                for observation_id in manifest_selected_observation_ids:
                     offset = 0
                     while True:
                         batch = self.repository.list_relationships(
@@ -438,7 +440,7 @@ class PropositionProvenanceValidator:
                 or relationship.target_entity_id != target_id
                 or relationship.relationship_type != binding.relationship_type
                 or source.observation_ids != (relationship.observation_id,)
-                or relationship.observation_id not in manifest_observation_ids
+                or relationship.observation_id not in manifest_selected_observation_ids
             ):
                 raise PropositionProvenanceError(
                     f"relationship provenance does not match its registered binding: {binding.parameter_name}"
