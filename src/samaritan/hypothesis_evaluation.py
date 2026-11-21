@@ -40,18 +40,18 @@ class HypothesisEvaluationEngine:
     ) -> None:
         if clock is not None and not callable(clock):
             raise TypeError("clock must be callable")
+        if semantics_registry is None:
+            semantics_registry = build_default_proposition_semantics_registry()
+        if type(semantics_registry) is not PropositionSemanticsRegistry:
+            raise TypeError("semantics_registry must be a PropositionSemanticsRegistry")
         self.clock = clock if clock is not None else (lambda: datetime.now(timezone.utc))
+        semantics_registry.freeze()
         self.criterion_engine = CriterionEvaluationEngine(
             repository,
             evaluator_registry,
             outcome_registry,
             clock=self.clock,
         )
-        if semantics_registry is None:
-            semantics_registry = build_default_proposition_semantics_registry()
-        if type(semantics_registry) is not PropositionSemanticsRegistry:
-            raise TypeError("semantics_registry must be a PropositionSemanticsRegistry")
-        semantics_registry.freeze()
         outcome_registry.freeze()
         self.semantics_registry = semantics_registry
         self.outcome_registry = outcome_registry
