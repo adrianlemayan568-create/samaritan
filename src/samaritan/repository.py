@@ -449,7 +449,11 @@ class Repository:
         parent: sqlite3.Row,
         items: Sequence[sqlite3.Row],
     ) -> EvidenceSet:
-        """Reconstruct an EvidenceSet while verifying its exact stored order."""
+        """Reconstruct an EvidenceSet while verifying its sealed ordered items."""
+        if parent["is_sealed"] != 1:
+            raise DatabaseIntegrityError(
+                "persisted evidence set is not sealed"
+            )
         indexes = tuple(row["item_index"] for row in items)
         if indexes != tuple(range(len(items))):
             raise DatabaseIntegrityError(
@@ -487,7 +491,7 @@ class Repository:
             connection.execute("BEGIN IMMEDIATE")
             existing = connection.execute(
                 """
-                SELECT evidence_set_id, created_at, schema_version
+                SELECT evidence_set_id, created_at, schema_version, is_sealed
                 FROM evidence_sets
                 WHERE evidence_set_id = ?
                 """,
@@ -514,9 +518,9 @@ class Repository:
             connection.execute(
                 """
                 INSERT INTO evidence_sets (
-                    evidence_set_id, created_at, schema_version
+                    evidence_set_id, created_at, schema_version, is_sealed
                 )
-                VALUES (?, ?, ?)
+                VALUES (?, ?, ?, 0)
                 """,
                 (
                     evidence_set.evidence_set_id,
@@ -544,6 +548,15 @@ class Repository:
                         reference.event_id,
                     ),
                 )
+
+            connection.execute(
+                """
+                UPDATE evidence_sets
+                SET is_sealed = 1
+                WHERE evidence_set_id = ? AND is_sealed = 0
+                """,
+                (evidence_set.evidence_set_id,),
+            )
 
     def get_evidence_set(self, evidence_set_id: str) -> EvidenceSet | None:
         """Retrieve one immutable evidence selection with exact reference ordering."""
