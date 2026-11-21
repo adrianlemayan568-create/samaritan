@@ -21,6 +21,7 @@ from samaritan.reasoning_contracts import (
 from samaritan.repository import Repository
 from samaritan.proposition_contracts import (
     CURRENT_PROPOSITION_IDENTITY_ALGORITHM,
+    Proposition,
 )
 from samaritan.proposition_semantics import (
     PropositionSemanticsRegistry,
@@ -69,7 +70,7 @@ class HypothesisEvaluationEngine:
         self.rule_registry = rule_registry
         self.synthesizer = DiagnosticitySynthesizer()
 
-    def _authenticate_evidence_manifest(self, proposition) -> EvidenceSet:
+    def _authenticate_evidence_manifest(self, proposition: Proposition) -> None:
         """Require a proposition's manifest to match its persisted construction selection."""
         manifest = proposition.evidence_manifest
         persisted_evidence_set = self.repository.get_evidence_set(
@@ -83,8 +84,6 @@ class HypothesisEvaluationEngine:
             raise ValueError(
                 "proposition evidence manifest must match its persisted historical selection"
             )
-        return persisted_evidence_set
-
     def evaluate(
         self,
         specification: HypothesisSpecification,
