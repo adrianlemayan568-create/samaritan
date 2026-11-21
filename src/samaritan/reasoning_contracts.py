@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from datetime import datetime
+from types import MappingProxyType
+from typing import Mapping
 
 from samaritan.analysis_contracts import EvidenceReference
 from samaritan.contracts import SCHEMA_VERSION, normalize_timestamp, validate_id, validate_json_object, validate_text
@@ -218,11 +220,14 @@ class CriterionEvaluatorRegistry:
     """Immutable registry of finite built-in evaluator definitions; no callbacks."""
 
     def __init__(self) -> None:
-        self._definitions: dict[tuple[str, int], CriterionEvaluatorDefinition] = {}
+        self._definitions: dict[tuple[str, int], CriterionEvaluatorDefinition] | Mapping = {}
+        self._frozen = False
 
     def register(self, definition: CriterionEvaluatorDefinition) -> None:
-        if not isinstance(definition, CriterionEvaluatorDefinition):
-            raise TypeError("definition must be CriterionEvaluatorDefinition")
+        if type(definition) is not CriterionEvaluatorDefinition:
+            raise TypeError("definition must be exactly CriterionEvaluatorDefinition")
+        if self._frozen:
+            raise RuntimeError("criterion evaluator registry is frozen")
         key = (definition.criterion_type, definition.evaluator_version)
         if key in self._definitions:
             raise ValueError("criterion evaluator version is already registered")
@@ -261,16 +266,28 @@ class CriterionEvaluatorRegistry:
             raise ValueError("maximum_seconds must not be negative")
         return definition
 
+    def freeze(self) -> None:
+        if not self._frozen:
+            self._definitions = MappingProxyType(dict(self._definitions))
+            self._frozen = True
+
+    @property
+    def definitions(self) -> Mapping:
+        return MappingProxyType(dict(self._definitions))
+
 
 class CriterionOutcomeRegistry:
     """Finite immutable outcome vocabulary, scoped by criterion type."""
 
     def __init__(self) -> None:
-        self._definitions: dict[tuple[str, int, str], CriterionOutcomeDefinition] = {}
+        self._definitions: dict[tuple[str, int, str], CriterionOutcomeDefinition] | Mapping = {}
+        self._frozen = False
 
     def register(self, definition: CriterionOutcomeDefinition) -> None:
-        if not isinstance(definition, CriterionOutcomeDefinition):
-            raise TypeError("definition must be CriterionOutcomeDefinition")
+        if type(definition) is not CriterionOutcomeDefinition:
+            raise TypeError("definition must be exactly CriterionOutcomeDefinition")
+        if self._frozen:
+            raise RuntimeError("criterion outcome registry is frozen")
         key = (definition.criterion_type, definition.vocabulary_version, definition.outcome_code)
         if key in self._definitions:
             raise ValueError("criterion outcome code is already registered")
@@ -301,6 +318,15 @@ class CriterionOutcomeRegistry:
 
     def contains(self, criterion_type: str, vocabulary_version: int, outcome_code: str) -> bool:
         return (criterion_type, vocabulary_version, outcome_code) in self._definitions
+
+    def freeze(self) -> None:
+        if not self._frozen:
+            self._definitions = MappingProxyType(dict(self._definitions))
+            self._frozen = True
+
+    @property
+    def definitions(self) -> Mapping:
+        return MappingProxyType(dict(self._definitions))
 
 
 @dataclass(frozen=True, slots=True)
@@ -528,11 +554,14 @@ class HypothesisEvaluationRuleRegistry:
     """Preserve immutable evaluation rule definitions by exact ID and version."""
 
     def __init__(self) -> None:
-        self._definitions: dict[tuple[str, int], HypothesisEvaluationRule] = {}
+        self._definitions: dict[tuple[str, int], HypothesisEvaluationRule] | Mapping = {}
+        self._frozen = False
 
     def register(self, definition: HypothesisEvaluationRule) -> None:
-        if not isinstance(definition, HypothesisEvaluationRule):
-            raise TypeError("definition must be HypothesisEvaluationRule")
+        if type(definition) is not HypothesisEvaluationRule:
+            raise TypeError("definition must be exactly HypothesisEvaluationRule")
+        if self._frozen:
+            raise RuntimeError("hypothesis evaluation rule registry is frozen")
         key = (definition.evaluation_rule_id, definition.rule_version)
         if key in self._definitions:
             raise ValueError("evaluation rule version is already registered")
@@ -546,6 +575,15 @@ class HypothesisEvaluationRuleRegistry:
             return self._definitions[key]
         except KeyError as exc:
             raise KeyError(f"unknown evaluation rule: {key[0]}@{key[1]}") from exc
+
+    def freeze(self) -> None:
+        if not self._frozen:
+            self._definitions = MappingProxyType(dict(self._definitions))
+            self._frozen = True
+
+    @property
+    def definitions(self) -> Mapping:
+        return MappingProxyType(dict(self._definitions))
 
     def __len__(self) -> int:
         return len(self._definitions)
