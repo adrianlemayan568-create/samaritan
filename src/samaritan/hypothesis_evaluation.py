@@ -45,14 +45,13 @@ class HypothesisEvaluationEngine:
         if type(semantics_registry) is not PropositionSemanticsRegistry:
             raise TypeError("semantics_registry must be a PropositionSemanticsRegistry")
         self.clock = clock if clock is not None else (lambda: datetime.now(timezone.utc))
-        semantics_registry.freeze()
         self.criterion_engine = CriterionEvaluationEngine(
             repository,
             evaluator_registry,
             outcome_registry,
             clock=self.clock,
         )
-        outcome_registry.freeze()
+        semantics_registry.freeze()
         self.semantics_registry = semantics_registry
         self.outcome_registry = outcome_registry
         self.synthesizer = DiagnosticitySynthesizer()
