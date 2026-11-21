@@ -320,7 +320,18 @@ class CriterionEvaluationEngine:
                 evidence,
             )
         gap = (later.occurred_at - earlier.occurred_at).total_seconds()
-        matched = 0 <= gap <= parameters["maximum_seconds"]
+        if gap <= 0:
+            return self._result(
+                criterion,
+                "not_matched",
+                "ordering_violation",
+                tuple(
+                    item for item in evidence
+                    if item.event_id in {earlier.value_id, later.value_id}
+                ),
+                "The earlier event role must strictly precede the later event role.",
+            )
+        matched = gap <= parameters["maximum_seconds"]
         relevant = tuple(
             item for item in evidence
             if item.event_id in {earlier.value_id, later.value_id}
