@@ -362,6 +362,7 @@ class PropositionProvenanceValidator:
         if construction.relationship_parameter_bindings:
             for observation_id in manifest_selected_observation_ids:
                 offset = 0
+                paged_relationship_ids: set[str] = set()
                 while True:
                     batch = self.repository.list_relationships(
                         observation_id=observation_id, limit=500, offset=offset
@@ -376,6 +377,12 @@ class PropositionProvenanceValidator:
                         raise PropositionProvenanceError(
                             "selected relationship has mismatched observation provenance"
                         )
+                    for relationship in batch:
+                        if relationship.relationship_id in paged_relationship_ids:
+                            raise PropositionProvenanceError(
+                                "repository pagination repeated a relationship record"
+                            )
+                        paged_relationship_ids.add(relationship.relationship_id)
                     selected_relationships.extend(batch)
                     if len(batch) < 500:
                         break
