@@ -70,6 +70,16 @@ class HypothesisEvaluationEngine:
         if not isinstance(evidence_set, EvidenceSet):
             raise TypeError("evidence_set must be an EvidenceSet")
 
+        focal_proposition = specification.hypothesis.proposition
+        if (
+            evidence_set.evidence_set_id
+            != focal_proposition.evidence_manifest.evidence_set_id
+            or evidence_set.evidence != focal_proposition.evidence_manifest.evidence
+        ):
+            raise ValueError(
+                "evaluation EvidenceSet must exactly match the focal proposition evidence manifest"
+            )
+
         # A fingerprint supplied by a Proposition is only a claim until
         # checked against the authoritative semantics registry. Evaluation
         # accepts only the current fingerprint-bound identity algorithm.
