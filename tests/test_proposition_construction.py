@@ -509,7 +509,7 @@ def test_relationship_parameter_binding_requires_selected_observation_and_preser
     )
     with pytest.raises(
         PropositionProvenanceError,
-        match="relationship binding is omitted or does not match",
+        match="expected exactly one relationship of type account_uses_device; found 0",
     ):
         PropositionProvenanceValidator(
             repository,
@@ -551,7 +551,7 @@ def test_relationship_parameter_binding_requires_selected_observation_and_preser
             + (EvidenceReference(observation_id=second_observation.observation_id),),
         ),
     )
-    with pytest.raises(PropositionProvenanceError, match="expected at most one relationship"):
+    with pytest.raises(PropositionProvenanceError, match="expected exactly one relationship of type account_uses_device; found 2"):
         PropositionProvenanceValidator(
             repository, semantics_registry, construction_registry
         ).validate(expanded_manifest)
