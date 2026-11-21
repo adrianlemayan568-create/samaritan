@@ -28,7 +28,13 @@ from samaritan.proposition_semantics import (
 
 
 class HypothesisEvaluationEngine:
-    """Evaluate every declared criterion, synthesize alternatives, and preserve the exact rule identity."""
+    """Evaluate registered propositions and preserve reproducible rule/evidence identity.
+
+    When a custom proposition type is used, its exact semantics registry must be
+    supplied explicitly; the default registry covers only built-in semantics.
+    The optional clock controls evaluation timestamps, while record identities
+    remain deterministic for identical analytical inputs.
+    """
 
     def __init__(
         self,
