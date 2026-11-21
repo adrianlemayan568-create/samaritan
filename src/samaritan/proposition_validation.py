@@ -107,6 +107,48 @@ class PropositionProvenanceValidator:
                 observations[observation_id] = observation
             return observation
 
+        # Resolve the immutable evidence-selection manifest independently of
+        # field provenance. Unused selected evidence remains selection context,
+        # not supporting provenance.
+        manifest_observation_ids: set[str] = set()
+        manifest_event_ids: set[str] = set()
+        for reference in proposition.evidence_manifest.evidence:
+            if reference.event_id is not None:
+                event = load_event(reference.event_id)
+                observation = load_observation(event.observation_id)
+                if event.observation_id != observation.observation_id:
+                    raise PropositionProvenanceError(
+                        "manifest event does not belong to its loaded observation"
+                    )
+                manifest_event_ids.add(event.event_id)
+                manifest_observation_ids.add(observation.observation_id)
+            else:
+                observation = load_observation(reference.observation_id)
+                manifest_observation_ids.add(observation.observation_id)
+                offset = 0
+                while True:
+                    batch = self.repository.list_events(
+                        observation_id=observation.observation_id,
+                        limit=500,
+                        offset=offset,
+                    )
+                    if not isinstance(batch, tuple) or not all(
+                        isinstance(item, Event) for item in batch
+                    ):
+                        raise PropositionProvenanceError(
+                            "repository returned invalid events for a manifest observation"
+                        )
+                    for event in batch:
+                        if event.observation_id != observation.observation_id:
+                            raise PropositionProvenanceError(
+                                "manifest observation contains an event with mismatched provenance"
+                            )
+                        manifest_event_ids.add(event.event_id)
+                        load_event(event.event_id)
+                    if len(batch) < 500:
+                        break
+                    offset += 500
+
         for item in proposition.field_provenance:
             for event_id in item.event_ids:
                 event = load_event(event_id)
@@ -114,8 +156,16 @@ class PropositionProvenanceValidator:
                     raise PropositionProvenanceError(
                         f"event and observation provenance disagree for field: {item.field_name}"
                     )
+                if event_id not in manifest_event_ids:
+                    raise PropositionProvenanceError(
+                        f"field provenance event is outside the evidence manifest: {item.field_name}"
+                    )
             for observation_id in item.observation_ids:
                 load_observation(observation_id)
+                if observation_id not in manifest_observation_ids:
+                    raise PropositionProvenanceError(
+                        f"field provenance observation is outside the evidence manifest: {item.field_name}"
+                    )
 
         event_bindings = {item.semantic_role: item for item in construction.event_bindings}
         entity_bindings = {item.semantic_role: item for item in construction.entity_bindings}
@@ -331,7 +381,7 @@ class PropositionProvenanceValidator:
                         f"bound relationship parameter has no provenance: {binding.parameter_name}"
                     )
                 candidate_matches: list[Relationship] = []
-                for observation_id in observations:
+                for observation_id in manifest_observation_ids:
                     offset = 0
                     while True:
                         batch = self.repository.list_relationships(
@@ -387,6 +437,7 @@ class PropositionProvenanceValidator:
                 or relationship.target_entity_id != target_id
                 or relationship.relationship_type != binding.relationship_type
                 or source.observation_ids != (relationship.observation_id,)
+                or relationship.observation_id not in manifest_observation_ids
             ):
                 raise PropositionProvenanceError(
                     f"relationship provenance does not match its registered binding: {binding.parameter_name}"
