@@ -479,10 +479,6 @@ class HypothesisEvaluationRuleRegistry:
         key = (definition.evaluation_rule_id, definition.rule_version)
         if key in self._definitions:
             raise ValueError("evaluation rule version is already registered")
-        if any(rule_id == definition.evaluation_rule_id for rule_id, _ in self._definitions):
-            raise ValueError(
-                "evaluation_rule_id cannot be reused for materially different logic; register a new identity"
-            )
         self._definitions[key] = definition
 
     def get(self, evaluation_rule_id: str, rule_version: int) -> HypothesisEvaluationRule:
@@ -654,6 +650,14 @@ class HypothesisEvaluationRecord:
         expected_alternatives = {
             item.alternative_id for item in specification.alternatives
         }
+        if self.synthesis.confidence_ceiling == "high":
+            raise ValueError("M2.4 does not permit a high confidence ceiling")
+        if not self.findings and self.synthesis.outcome != "inconclusive":
+            raise ValueError(
+                "an evaluation with no findings must be inconclusive"
+            )
+        if self.synthesis.outcome == "supported" and not self.findings:
+            raise ValueError("supported evaluations require at least one finding")
         actual_alternatives = {
             item.alternative_id for item in self.synthesis.alternative_standings
         }
