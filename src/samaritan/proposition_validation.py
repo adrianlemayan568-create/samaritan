@@ -12,7 +12,7 @@ from samaritan.repository import Repository
 from samaritan.proposition_evidence_selection import (
     resolve_event_roles,
     resolve_entity_roles,
-    resolve_relationship,
+    resolve_parameter_values,
 )
 
 
@@ -343,91 +343,8 @@ class PropositionProvenanceValidator:
                     f"entity role does not resolve to the declared entity type: {role_name}"
                 )
 
-        parameter_definitions = {item.parameter_name: item for item in semantics.parameters}
-
-        def validate_unavailable_optional_parameter(parameter_name: str) -> None:
-            definition = parameter_definitions[parameter_name]
-            value_present = parameter_name in parameters
-            source_present = parameter_name in provenance
-            if definition.required:
-                raise PropositionProvenanceError(
-                    f"required parameter depends on an absent optional role: {parameter_name}"
-                )
-            if source_present or (
-                value_present and (
-                    type(parameters[parameter_name]) is not type(definition.default_value)
-                    or parameters[parameter_name] != definition.default_value
-                )
-            ):
-                raise PropositionProvenanceError(
-                    f"parameter claims a source that is unavailable: {parameter_name}"
-                )
-
-        for binding in construction.event_attribute_bindings:
-            event_role = roles.get(binding.event_role)
-            if event_role is None:
-                validate_unavailable_optional_parameter(binding.parameter_name)
-                continue
-            event = load_event(event_role.value_id)
-            attributes = json.loads(event.normalized_data_json)
-            if binding.attribute_name not in attributes:
-                raise PropositionProvenanceError(
-                    f"source event is missing the registered attribute for parameter: {binding.parameter_name}"
-                )
-            if (
-                type(parameters.get(binding.parameter_name)) is not type(attributes[binding.attribute_name])
-                or parameters.get(binding.parameter_name) != attributes[binding.attribute_name]
-            ):
-                raise PropositionProvenanceError(
-                    f"parameter value does not match its registered event attribute: {binding.parameter_name}"
-                )
-            source = provenance.get(binding.parameter_name)
-            if source is None:
-                raise PropositionProvenanceError(
-                    f"event attribute parameter has no provenance: {binding.parameter_name}"
-                )
-            if (
-                source.event_ids != (event.event_id,)
-                or source.observation_ids != (event.observation_id,)
-                or source.relationship_ids
-            ):
-                raise PropositionProvenanceError(
-                    f"parameter provenance does not match its event attribute source: {binding.parameter_name}"
-                )
-
-        for binding in construction.temporal_parameter_bindings:
-            earlier_role = roles.get(binding.earlier_event_role)
-            later_role = roles.get(binding.later_event_role)
-            if earlier_role is None or later_role is None:
-                validate_unavailable_optional_parameter(binding.parameter_name)
-                continue
-            earlier = load_event(earlier_role.value_id)
-            later = load_event(later_role.value_id)
-            seconds = (later.occurred_at - earlier.occurred_at).total_seconds()
-            source = provenance.get(binding.parameter_name)
-            if source is None:
-                raise PropositionProvenanceError(
-                    f"temporal parameter has no provenance: {binding.parameter_name}"
-                )
-            expected_observations = tuple(dict.fromkeys(
-                (earlier.observation_id, later.observation_id)
-            ))
-            if (
-                not seconds.is_integer()
-                or seconds < 0
-                or type(parameters.get(binding.parameter_name)) is not int
-                or parameters.get(binding.parameter_name) != int(seconds)
-                or source.event_ids != (earlier.event_id, later.event_id)
-                or source.observation_ids != expected_observations
-                or source.relationship_ids
-            ):
-                raise PropositionProvenanceError(
-                    f"temporal parameter value or provenance is inconsistent: {binding.parameter_name}"
-                )
-
-        # Resolve every relationship binding against the complete set of
-        # explicitly selected observations, not merely the relationship ID
-        # already claimed by the proposition.
+        # Resolve all parameter sources with the same pure selection logic
+        # used by construction, then compare the full value/provenance projection.
         selected_relationships: list[Relationship] = []
         for observation_id in manifest_selected_observation_ids:
             offset = 0
@@ -450,124 +367,59 @@ class PropositionProvenanceValidator:
                     break
                 offset += 500
 
-        for binding in construction.relationship_parameter_bindings:
-            source_role = roles.get(binding.source_entity_role)
-            target_role = roles.get(binding.target_entity_role)
-            if source_role is None or target_role is None:
-                continue
-            try:
-                expected_relationship = resolve_relationship(
-                    tuple(selected_relationships),
-                    binding,
-                    source_role.value_id,
-                    target_role.value_id,
-                    required=parameter_definitions[binding.parameter_name].required,
-                )
-            except (TypeError, ValueError) as exc:
-                raise PropositionProvenanceError(str(exc)) from exc
-            claimed = provenance.get(binding.parameter_name)
-            if expected_relationship is None:
-                if claimed is not None:
-                    raise PropositionProvenanceError(
-                        f"relationship provenance claims an unavailable optional binding: {binding.parameter_name}"
-                    )
-            elif claimed is None or claimed.relationship_ids != (
-                expected_relationship.relationship_id,
-            ):
-                raise PropositionProvenanceError(
-                    f"relationship binding is omitted or does not match the unique manifest selection: {binding.parameter_name}"
-                )
-
-        for binding in construction.relationship_parameter_bindings:
-            source_role = roles.get(binding.source_entity_role)
-            target_role = roles.get(binding.target_entity_role)
-            if source_role is None or target_role is None:
-                validate_unavailable_optional_parameter(binding.parameter_name)
-                continue
-            source_id = source_role.value_id
-            target_id = target_role.value_id
-            source = provenance.get(binding.parameter_name)
-            if source is None:
-                definition = parameter_definitions[binding.parameter_name]
-                value_present = binding.parameter_name in parameters
-                if definition.required or (
-                    value_present and parameters[binding.parameter_name] != definition.default_value
+        try:
+            expected_parameters = resolve_parameter_values(
+                semantics,
+                construction,
+                expected_event_selection,
+                resolved_entities,
+                tuple(selected_relationships),
+            )
+        except (TypeError, ValueError) as exc:
+            raise PropositionProvenanceError(str(exc)) from exc
+        expected_parameters_by_name = {
+            item.parameter_name: item for item in expected_parameters
+        }
+        parameter_definitions = {
+            item.parameter_name: item for item in semantics.parameters
+        }
+        for parameter_name, definition in parameter_definitions.items():
+            expected = expected_parameters_by_name.get(parameter_name)
+            source = provenance.get(parameter_name)
+            if expected is not None:
+                actual_present = parameter_name in parameters
+                actual_value = parameters.get(parameter_name)
+                if (
+                    not actual_present
+                    or type(actual_value) is not type(expected.value)
+                    or actual_value != expected.value
                 ):
                     raise PropositionProvenanceError(
-                        f"bound relationship parameter has no provenance: {binding.parameter_name}"
+                        f"parameter value does not match shared source selection: {parameter_name}"
                     )
-                candidate_matches: list[Relationship] = []
-                for observation_id in manifest_selected_observation_ids:
-                    offset = 0
-                    while True:
-                        batch = self.repository.list_relationships(
-                            observation_id=observation_id, limit=500, offset=offset
-                        )
-                        if not isinstance(batch, tuple) or not all(
-                            type(item) is Relationship for item in batch
-                        ):
-                            raise PropositionProvenanceError(
-                                "repository returned invalid relationship records"
-                            )
-                        candidate_matches.extend(
-                            item for item in batch
-                            if item.source_entity_id == source_id
-                            and item.target_entity_id == target_id
-                            and item.relationship_type == binding.relationship_type
-                        )
-                        if len(batch) < 500:
-                            break
-                        offset += 500
-                if candidate_matches:
+                if source is None or (
+                    source.event_ids != expected.event_ids
+                    or source.observation_ids != expected.observation_ids
+                    or source.relationship_ids != expected.relationship_ids
+                ):
                     raise PropositionProvenanceError(
-                        f"optional relationship parameter omitted despite matching source: {binding.parameter_name}"
+                        f"parameter provenance does not match shared source selection: {parameter_name}"
                     )
                 continue
-            matches: list[Relationship] = []
-            for observation_id in source.observation_ids:
-                offset = 0
-                while True:
-                    batch = self.repository.list_relationships(
-                        observation_id=observation_id, limit=500, offset=offset
+
+            if definition.default_value is not None:
+                actual_value = parameters.get(parameter_name)
+                if (
+                    parameter_name not in parameters
+                    or type(actual_value) is not type(definition.default_value)
+                    or actual_value != definition.default_value
+                    or source is not None
+                ):
+                    raise PropositionProvenanceError(
+                        f"unresolved optional parameter must retain only its registered default: {parameter_name}"
                     )
-                    if not isinstance(batch, tuple) or not all(
-                        type(item) is Relationship for item in batch
-                    ):
-                        raise PropositionProvenanceError(
-                            "repository returned invalid relationship records"
-                        )
-                    matches.extend(
-                        item for item in batch
-                        if item.relationship_id in source.relationship_ids
-                    )
-                    if len(batch) < 500:
-                        break
-                    offset += 500
-            if source.event_ids or len(source.relationship_ids) != 1 or len(matches) != 1:
+            elif parameter_name in parameters or source is not None:
                 raise PropositionProvenanceError(
-                    f"relationship provenance must identify exactly one stored relationship: {binding.parameter_name}"
+                    f"parameter claims a source that is unavailable: {parameter_name}"
                 )
-            relationship = matches[0]
-            if (
-                relationship.source_entity_id != source_id
-                or relationship.target_entity_id != target_id
-                or relationship.relationship_type != binding.relationship_type
-                or source.observation_ids != (relationship.observation_id,)
-                or relationship.observation_id not in manifest_selected_observation_ids
-            ):
-                raise PropositionProvenanceError(
-                    f"relationship provenance does not match its registered binding: {binding.parameter_name}"
-                )
-            if binding.relationship_field == "relationship_id":
-                expected_value = relationship.relationship_id
-            elif binding.relationship_field == "relationship_type":
-                expected_value = relationship.relationship_type
-            else:
-                expected_value = relationship.observed_at.isoformat()
-            if (
-                type(parameters.get(binding.parameter_name)) is not type(expected_value)
-                or parameters.get(binding.parameter_name) != expected_value
-            ):
-                raise PropositionProvenanceError(
-                    f"relationship parameter value does not match its source: {binding.parameter_name}"
-                )
+
