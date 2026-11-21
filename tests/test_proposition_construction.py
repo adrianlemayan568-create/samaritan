@@ -1666,12 +1666,10 @@ def test_validator_rejects_new_ambiguous_required_event_in_manifest(tmp_path):
     proposition = constructor.construct(
         evidence_set, "account_authentication_sequence", 1
     )
-    second_account = Entity(
-        entity_id=new_id(), entity_type="user_account",
-        canonical_identifier="selection-second", created_at=start,
-    )
+    # A second failure for the same account is a genuine competing candidate.
+    # An event for another account is unrelated evidence and must not create ambiguity.
     duplicate = persist_event(
-        repository, source, second_account, "authentication_failure", "target",
+        repository, source, account, "authentication_failure", "target",
         start + timedelta(seconds=5),
     )
     forged = replace(
