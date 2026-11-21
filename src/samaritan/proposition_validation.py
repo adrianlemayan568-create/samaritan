@@ -67,7 +67,7 @@ class PropositionProvenanceValidator:
             )
         try:
             proposition.validate_against(semantics)
-        except (TypeError, ValueError) as exc:
+        except ValueError as exc:
             raise PropositionProvenanceError(str(exc)) from exc
 
         roles = {item.role_name: item for item in proposition.roles}
@@ -143,7 +143,7 @@ class PropositionProvenanceValidator:
             manifest_selection = resolve_manifest_selection(
                 self.repository, proposition.evidence_manifest
             )
-        except (DatabaseIntegrityError, TypeError, ValueError) as exc:
+        except (DatabaseIntegrityError, ValueError) as exc:
             raise PropositionProvenanceError(str(exc)) from exc
         events.update({item.event_id: item for item in manifest_selection.events})
         observations.update({
