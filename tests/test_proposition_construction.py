@@ -173,10 +173,54 @@ def test_constructor_rejects_ambiguous_multiple_events_for_one_semantic_role(tmp
         evidence=tuple(EvidenceReference(event_id=item.event_id) for item in events),
         created_at=start + timedelta(minutes=4),
     )
-    with pytest.raises(PropositionConstructionError, match="found 2"):
+    with pytest.raises(PropositionConstructionError, match="ambiguous"):
         make_constructor(repository).construct(
             evidence_set, "account_authentication_sequence", 1
         )
+
+
+def test_participant_constraints_disambiguate_same_type_event_candidates(tmp_path):
+    repository, source, start = make_repository(tmp_path)
+    account = Entity(
+        entity_id=new_id(),
+        entity_type="user_account",
+        canonical_identifier="alice",
+        created_at=start,
+    )
+    unrelated_account = Entity(
+        entity_id=new_id(),
+        entity_type="user_account",
+        canonical_identifier="bob",
+        created_at=start,
+    )
+    matching_failure = persist_event(
+        repository, source, account, "authentication_failure", "target", start
+    )
+    unrelated_failure = persist_event(
+        repository, source, unrelated_account, "authentication_failure",
+        "target", start + timedelta(seconds=10),
+    )
+    success = persist_event(
+        repository, source, account, "authentication_success", "target",
+        start + timedelta(seconds=90),
+    )
+    host_activity = persist_event(
+        repository, source, account, "host_activity", "subject",
+        start + timedelta(seconds=180),
+    )
+    events = (matching_failure, unrelated_failure, success, host_activity)
+    evidence_set = EvidenceSet(
+        evidence_set_id=new_id(),
+        evidence=tuple(EvidenceReference(event_id=item.event_id) for item in events),
+        created_at=start + timedelta(minutes=4),
+    )
+
+    proposition = make_constructor(repository).construct(
+        evidence_set, "account_authentication_sequence", 1
+    )
+    roles = {item.role_name: item for item in proposition.roles}
+    assert roles["failure_event"].value_id == matching_failure.event_id
+    assert roles["account"].value_id == account.entity_id
 
 
 
