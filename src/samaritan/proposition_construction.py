@@ -47,11 +47,11 @@ class PropositionConstructor:
         semantics_registry: PropositionSemanticsRegistry,
         construction_registry: PropositionConstructionRegistry,
     ) -> None:
-        if not isinstance(repository, Repository):
+        if type(repository) is not Repository:
             raise TypeError("repository must be a Repository")
-        if not isinstance(semantics_registry, PropositionSemanticsRegistry):
+        if type(semantics_registry) is not PropositionSemanticsRegistry:
             raise TypeError("semantics_registry must be a PropositionSemanticsRegistry")
-        if not isinstance(construction_registry, PropositionConstructionRegistry):
+        if type(construction_registry) is not PropositionConstructionRegistry:
             raise TypeError("construction_registry must be a PropositionConstructionRegistry")
         semantics_registry.freeze()
         construction_registry.freeze()
