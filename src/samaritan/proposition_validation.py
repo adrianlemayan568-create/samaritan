@@ -277,6 +277,56 @@ class PropositionProvenanceValidator:
                     "fallback temporal scope does not match source-verified required event roles"
                 )
 
+        # Recompute entity-role presence from the resolved participant
+        # bindings, including optional entity roles. A forged proposition may
+        # not omit a role that construction would populate.
+        for role_name, binding in entity_bindings.items():
+            definition = semantic_roles[role_name]
+            resolved_ids: list[str] = []
+            dependencies_present = True
+            for participant_binding in binding.participant_bindings:
+                event = expected_event_roles.get(participant_binding.event_role)
+                if event is None:
+                    dependencies_present = False
+                    break
+                participant_ids = [
+                    participant.entity_id
+                    for participant in event.participants
+                    if participant.role == participant_binding.participant_role
+                ]
+                if len(participant_ids) != 1:
+                    raise PropositionProvenanceError(
+                        f"expected exactly one participant with role "
+                        f"{participant_binding.participant_role!r} in "
+                        f"{participant_binding.event_role}; found {len(participant_ids)}"
+                    )
+                resolved_ids.append(participant_ids[0])
+            expected_entity_id = None
+            if dependencies_present:
+                if len(set(resolved_ids)) != 1:
+                    raise PropositionProvenanceError(
+                        f"entity role {role_name} resolves to different entities across source events"
+                    )
+                expected_entity_id = resolved_ids[0]
+            elif definition.required:
+                raise PropositionProvenanceError(
+                    f"required entity role {role_name} depends on an absent optional event role"
+                )
+            actual_entity_role = roles.get(role_name)
+            if (
+                (expected_entity_id is None and actual_entity_role is not None)
+                or (
+                    expected_entity_id is not None
+                    and (
+                        actual_entity_role is None
+                        or actual_entity_role.value_id != expected_entity_id
+                    )
+                )
+            ):
+                raise PropositionProvenanceError(
+                    f"entity role presence or value does not match manifest selection: {role_name}"
+                )
+
         entity_ids: set[str] = set()
         for role_name, binding in entity_bindings.items():
             role = roles.get(role_name)
