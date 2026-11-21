@@ -114,6 +114,7 @@ def resolve_manifest_selection(
         selected_observations[observation.observation_id] = observation
         provenance_observations[observation.observation_id] = observation
         offset = 0
+        paged_event_ids: set[str] = set()
         while True:
             batch = repository.list_events(
                 observation_id=observation.observation_id,
@@ -131,11 +132,17 @@ def resolve_manifest_selection(
                     raise DatabaseIntegrityError(
                         "event observation provenance mismatch"
                     )
-                canonical_event = load_event(item.event_id)
-                if canonical_event.observation_id != observation.observation_id:
+                if item.event_id in paged_event_ids:
                     raise DatabaseIntegrityError(
-                        "canonical event observation provenance mismatch"
+                        "repository pagination repeated an event record"
                     )
+                paged_event_ids.add(item.event_id)
+                existing_event = events.get(item.event_id)
+                if existing_event is not None and existing_event != item:
+                    raise DatabaseIntegrityError(
+                        "repository returned conflicting records for one event"
+                    )
+                events[item.event_id] = item
             if len(batch) < 500:
                 break
             offset += 500
