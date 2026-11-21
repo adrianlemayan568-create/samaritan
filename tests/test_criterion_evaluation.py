@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
 from samaritan.analysis_contracts import EvidenceReference
@@ -21,6 +22,7 @@ from samaritan.proposition_contracts import (
     PropositionRoleValue,
     PropositionTemporalScope,
     CURRENT_PROPOSITION_IDENTITY_ALGORITHM,
+    LEGACY_PROPOSITION_IDENTITY_ALGORITHM,
     StructuredHypothesis,
     deterministic_proposition_id,
 )
@@ -371,6 +373,63 @@ def test_hypothesis_evaluation_engine_runs_findings_and_synthesis_end_to_end(tmp
     assert record.evidence_set_id == evidence_set.evidence_set_id
     assert record.findings[0].status == "matched"
     assert record.synthesis.outcome == "supported"
+
+    forged_fingerprint = "sha256-v1:" + ("0" * 64)
+    forged_focal = replace(
+        proposition,
+        semantics_fingerprint=forged_fingerprint,
+        proposition_id=deterministic_proposition_id(
+            proposition.proposition_type,
+            proposition.semantics_version,
+            proposition.roles,
+            proposition.temporal_scope,
+            proposition.parameters_json,
+            semantics_fingerprint=forged_fingerprint,
+            identity_algorithm_version=proposition.identity_algorithm_version,
+        ),
+    )
+    forged_alternative = replace(
+        alternative.proposition,
+        semantics_fingerprint=forged_fingerprint,
+        proposition_id=deterministic_proposition_id(
+            alternative.proposition.proposition_type,
+            alternative.proposition.semantics_version,
+            alternative.proposition.roles,
+            alternative.proposition.temporal_scope,
+            alternative.proposition.parameters_json,
+            semantics_fingerprint=forged_fingerprint,
+            identity_algorithm_version=alternative.proposition.identity_algorithm_version,
+        ),
+    )
+    forged_rule = replace(rule, semantics_fingerprint=forged_fingerprint)
+    forged_specification = HypothesisSpecification(
+        hypothesis=replace(specification.hypothesis, proposition=forged_focal),
+        alternatives=(replace(alternative, proposition=forged_alternative),),
+        evaluation_rule=forged_rule,
+    )
+    import pytest
+    with pytest.raises(ValueError, match="fingerprint does not match exact semantics"):
+        engine.evaluate(forged_specification, evidence_set)
+
+    legacy_focal = replace(
+        proposition,
+        identity_algorithm_version=LEGACY_PROPOSITION_IDENTITY_ALGORITHM,
+        proposition_id=deterministic_proposition_id(
+            proposition.proposition_type,
+            proposition.semantics_version,
+            proposition.roles,
+            proposition.temporal_scope,
+            proposition.parameters_json,
+            identity_algorithm_version=LEGACY_PROPOSITION_IDENTITY_ALGORITHM,
+        ),
+    )
+    legacy_specification = HypothesisSpecification(
+        hypothesis=replace(specification.hypothesis, proposition=legacy_focal),
+        alternatives=specification.alternatives,
+        evaluation_rule=rule,
+    )
+    with pytest.raises(ValueError, match="current fingerprint-bound proposition identity"):
+        engine.evaluate(legacy_specification, evidence_set)
 
 
 
