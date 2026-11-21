@@ -457,6 +457,9 @@ class PropositionConstructor:
     ]:
         events: dict[str, Event] = {}
         observations: dict[str, Observation] = {}
+        # Parent observations loaded for event provenance do not become
+        # observation-level selections. Only explicit observation references
+        # authorize construction from all records attached to an observation.
         selected_observations: dict[str, Observation] = {}
         for reference in references:
             if reference.event_id is not None:
