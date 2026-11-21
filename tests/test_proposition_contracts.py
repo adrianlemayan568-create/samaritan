@@ -140,6 +140,7 @@ def test_required_temporal_interval_is_enforced():
         construction_version=1,
         semantics_fingerprint=proposition.semantics_fingerprint,
         identity_algorithm_version=proposition.identity_algorithm_version,
+        evidence_manifest=proposition.evidence_manifest,
     )
     semantics = build_default_proposition_semantics_registry().get(
         "account_authentication_sequence", 1
@@ -209,6 +210,7 @@ def test_event_role_provenance_must_name_the_role_event():
             construction_version=proposition.construction_version,
             semantics_fingerprint=proposition.semantics_fingerprint,
             identity_algorithm_version=proposition.identity_algorithm_version,
+            evidence_manifest=proposition.evidence_manifest,
         )
 
 
