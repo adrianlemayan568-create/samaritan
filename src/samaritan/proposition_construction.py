@@ -177,6 +177,10 @@ class PropositionConstructor:
             )
         except ValueError as exc:
             raise PropositionConstructionError(str(exc)) from exc
+        # The constructor is the commit point for the exact historical
+        # selection. The repository accepts identical retries but rejects reuse
+        # of this ID for a different selection.
+        self.repository.persist_evidence_set(evidence_set)
         manifest_selection = resolve_manifest_selection(
             self.repository, evidence_manifest
         )
