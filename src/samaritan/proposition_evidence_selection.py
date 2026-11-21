@@ -263,6 +263,7 @@ def resolve_event_roles(
     def search(index: int, optional_count: int) -> None:
         nonlocal best_optional_count
         if index == len(role_options):
+            selected_role_names = {role_name for role_name, _ in assignment}
             for entity_binding in construction.entity_bindings:
                 dependency_roles = {
                     item.event_role for item in entity_binding.participant_bindings
