@@ -311,6 +311,7 @@ class CriterionOutcomeRegistry:
         """Return the complete registered outcome vocabulary in stable order."""
         if type(vocabulary_version) is not int or vocabulary_version < 1:
             raise ValueError("vocabulary_version must be a positive integer")
+        criterion_type = validate_identifier(criterion_type, "criterion_type")
         return tuple(sorted(
             (
                 item for (kind, version, _), item in self._definitions.items()
@@ -320,7 +321,11 @@ class CriterionOutcomeRegistry:
         ))
 
     def contains(self, criterion_type: str, vocabulary_version: int, outcome_code: str) -> bool:
-        return (criterion_type, vocabulary_version, outcome_code) in self._definitions
+        return (
+            validate_identifier(criterion_type, "criterion_type"),
+            vocabulary_version,
+            validate_identifier(outcome_code, "outcome_code"),
+        ) in self._definitions
 
     def freeze(self) -> None:
         if not self._frozen:
