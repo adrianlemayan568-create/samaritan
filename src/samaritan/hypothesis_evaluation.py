@@ -65,9 +65,9 @@ class HypothesisEvaluationEngine:
         production: bool = True,
     ) -> HypothesisEvaluationRecord:
         """Return an immutable evaluation record without persisting analytical state."""
-        if not isinstance(specification, HypothesisSpecification):
+        if type(specification) is not HypothesisSpecification:
             raise TypeError("specification must be a HypothesisSpecification")
-        if not isinstance(evidence_set, EvidenceSet):
+        if type(evidence_set) is not EvidenceSet:
             raise TypeError("evidence_set must be an EvidenceSet")
 
         focal_proposition = specification.hypothesis.proposition
