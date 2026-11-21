@@ -107,6 +107,22 @@ class PropositionProvenanceValidator:
                 observations[observation_id] = observation
             return observation
 
+        event_bindings = {item.semantic_role: item for item in construction.event_bindings}
+        entity_bindings = {item.semantic_role: item for item in construction.entity_bindings}
+        bound_role_names = set(event_bindings) | set(entity_bindings)
+        semantic_roles = {item.role_name: item for item in semantics.roles}
+        required_role_names = {
+            name for name, definition in semantic_roles.items() if definition.required
+        }
+        if not set(roles).issubset(bound_role_names):
+            raise PropositionProvenanceError(
+                "proposition roles must match exact registered construction bindings; every populated role must have a registered binding"
+            )
+        if not required_role_names.issubset(roles):
+            raise PropositionProvenanceError(
+                "proposition is missing one or more required semantic roles"
+            )
+
         # Resolve the immutable evidence-selection manifest independently of
         # field provenance. Unused selected evidence remains selection context,
         # not supporting provenance.
@@ -167,21 +183,6 @@ class PropositionProvenanceValidator:
                         f"field provenance observation is outside the evidence manifest: {item.field_name}"
                     )
 
-        event_bindings = {item.semantic_role: item for item in construction.event_bindings}
-        entity_bindings = {item.semantic_role: item for item in construction.entity_bindings}
-        bound_role_names = set(event_bindings) | set(entity_bindings)
-        semantic_roles = {item.role_name: item for item in semantics.roles}
-        required_role_names = {
-            name for name, definition in semantic_roles.items() if definition.required
-        }
-        if not set(roles).issubset(bound_role_names):
-            raise PropositionProvenanceError(
-                "proposition roles must match exact registered construction bindings; every populated role must have a registered binding"
-            )
-        if not required_role_names.issubset(roles):
-            raise PropositionProvenanceError(
-                "proposition is missing one or more required semantic roles"
-            )
         for role_name, binding in event_bindings.items():
             definition = semantic_roles.get(role_name)
             if definition is None or definition.role_kind != "event" or definition.event_type != binding.event_type:
