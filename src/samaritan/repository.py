@@ -564,7 +564,7 @@ class Repository:
         with self.database.connection() as connection:
             parent = connection.execute(
                 """
-                SELECT evidence_set_id, created_at, schema_version
+                SELECT evidence_set_id, created_at, schema_version, is_sealed
                 FROM evidence_sets
                 WHERE evidence_set_id = ?
                 """,
