@@ -15,7 +15,7 @@ from samaritan.contracts import (
     new_id,
     payload_checksum,
 )
-from samaritan.database import Database
+from samaritan.database import Database, DatabaseIntegrityError
 from samaritan.evaluation_contracts import EvidenceSet
 from samaritan.proposition_construction import (
     PropositionConstructionError,
@@ -41,10 +41,12 @@ from samaritan.proposition_semantics import (
 )
 from samaritan.repository import Repository
 from samaritan.proposition_contracts import (
+    PropositionEvidenceManifest,
     PropositionFieldProvenance,
     PropositionRoleValue,
     deterministic_proposition_id,
 )
+from samaritan.proposition_evidence_selection import resolve_manifest_selection
 from samaritan.proposition_validation import (
     PropositionProvenanceError,
     PropositionProvenanceValidator,
@@ -363,7 +365,7 @@ def test_temporal_difference_parameter_binding_is_deterministic(tmp_path):
 @pytest.mark.parametrize("duplicate_relationship", [False, True])
 @pytest.mark.parametrize("include_relationship_observation_reference", [False, True])
 def test_relationship_parameter_binding_requires_selected_observation_and_preserves_explicit_relationship(
-    tmp_path, duplicate_relationship, include_relationship_observation_reference
+    tmp_path, monkeypatch, duplicate_relationship, include_relationship_observation_reference
 ):
     repository, source, start = make_repository(tmp_path)
     account = Entity(
@@ -568,6 +570,29 @@ def test_relationship_parameter_binding_requires_selected_observation_and_preser
             semantics_registry,
             construction_registry,
         ).validate(forged)
+
+    # A repeated full page must fail in both construction and validation.
+    repeated_relationship_page = (relationship, relationship)
+    monkeypatch.setattr(
+        repository,
+        "list_relationships",
+        lambda **_kwargs: repeated_relationship_page,
+    )
+    with pytest.raises(
+        DatabaseIntegrityError,
+        match="pagination repeated a relationship record",
+    ):
+        constructor._load_relationships({observation.observation_id: observation})
+
+    with pytest.raises(
+        PropositionProvenanceError,
+        match="pagination repeated a relationship record",
+    ):
+        PropositionProvenanceValidator(
+            repository,
+            semantics_registry,
+            construction_registry,
+        ).validate(proposition)
     assert proposition.parameters_json == (
         '{"account_device_relationship_id":"' + relationship.relationship_id + '"}'
     )
@@ -2021,3 +2046,80 @@ def test_validator_rejects_manifest_without_persisted_evidence_set(
             constructor.semantics_registry,
             constructor.construction_registry,
         ).validate(proposition)
+
+
+
+def test_manifest_event_pagination_reuses_records_and_accepts_more_than_one_page(
+    tmp_path, monkeypatch
+):
+    repository, source, start = make_repository(tmp_path)
+    observation = Observation(
+        observation_id=new_id(),
+        source_id=source.source_id,
+        received_at=start,
+        raw_payload="{}",
+        payload_sha256=payload_checksum("{}"),
+    )
+    repository.persist_observation(observation)
+    events = tuple(
+        Event(
+            event_id=new_id(),
+            observation_id=observation.observation_id,
+            event_type="synthetic_event",
+            occurred_at=start + timedelta(microseconds=index),
+            original_timestamp=(start + timedelta(microseconds=index)).isoformat(),
+            normalized_data_json="{}",
+            participants=(),
+        )
+        for index in range(501)
+    )
+    calls = []
+
+    def list_event_page(*, observation_id, limit, offset):
+        assert observation_id == observation.observation_id
+        assert limit == 500
+        calls.append(offset)
+        return events[offset : offset + limit]
+
+    def unexpected_individual_fetch(_event_id):
+        raise AssertionError("observation-level event listing must not refetch events")
+
+    monkeypatch.setattr(repository, "list_events", list_event_page)
+    monkeypatch.setattr(repository, "get_event", unexpected_individual_fetch)
+    manifest = PropositionEvidenceManifest(
+        evidence_set_id=new_id(),
+        evidence=(EvidenceReference(observation_id=observation.observation_id),),
+    )
+
+    selection = resolve_manifest_selection(repository, manifest)
+
+    assert selection.events == events
+    assert calls == [0, 500]
+
+
+def test_manifest_event_pagination_rejects_repeated_event_ids(tmp_path, monkeypatch):
+    repository, source, start = make_repository(tmp_path)
+    account = Entity(
+        entity_id=new_id(),
+        entity_type="user_account",
+        canonical_identifier="repeated-event-page",
+        created_at=start,
+    )
+    event = persist_event(
+        repository, source, account, "authentication_failure", "target", start
+    )
+    manifest = PropositionEvidenceManifest(
+        evidence_set_id=new_id(),
+        evidence=(EvidenceReference(observation_id=event.observation_id),),
+    )
+    monkeypatch.setattr(
+        repository,
+        "list_events",
+        lambda **_kwargs: (event, event),
+    )
+
+    with pytest.raises(
+        DatabaseIntegrityError,
+        match="pagination repeated an event record",
+    ):
+        resolve_manifest_selection(repository, manifest)
