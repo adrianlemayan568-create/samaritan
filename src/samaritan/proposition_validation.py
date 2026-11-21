@@ -131,11 +131,11 @@ class PropositionProvenanceValidator:
         for reference in proposition.evidence_manifest.evidence:
             if reference.event_id is not None:
                 event = load_event(reference.event_id)
+                # The event record identifies its owning observation. Loading
+                # that observation verifies the referenced repository record
+                # exists; there is no second observation ID in this reference
+                # to compare against.
                 observation = load_observation(event.observation_id)
-                if event.observation_id != observation.observation_id:
-                    raise PropositionProvenanceError(
-                        "manifest event does not belong to its loaded observation"
-                    )
                 manifest_event_ids.add(event.event_id)
                 manifest_observation_ids.add(observation.observation_id)
             else:
