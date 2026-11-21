@@ -9,6 +9,11 @@ from samaritan.proposition_construction_contracts import PropositionConstruction
 from samaritan.proposition_contracts import Proposition
 from samaritan.proposition_semantics import PropositionSemanticsRegistry
 from samaritan.repository import Repository
+from samaritan.proposition_evidence_selection import (
+    EvidenceSelectionError,
+    resolve_event_roles,
+    resolve_relationship,
+)
 
 
 class PropositionProvenanceError(ValueError):
@@ -168,6 +173,30 @@ class PropositionProvenanceValidator:
                     if len(batch) < 500:
                         break
                     offset += 500
+
+        # Re-run the same manifest-to-role selection used by construction.
+        # This rejects omitted optional roles and stale propositions when a
+        # manifest later contains a newly matching event.
+        try:
+            expected_event_selection = resolve_event_roles(
+                semantics,
+                construction,
+                tuple(events[event_id] for event_id in manifest_event_ids),
+            )
+        except (TypeError, ValueError) as exc:
+            raise PropositionProvenanceError(str(exc)) from exc
+        expected_event_roles = dict(expected_event_selection.event_roles)
+        actual_event_roles = {
+            name: role for name, role in roles.items() if role.role_kind == "event"
+        }
+        if set(actual_event_roles) != set(expected_event_roles) or any(
+            actual_event_roles[name].value_id != event.event_id
+            or actual_event_roles[name].occurred_at != event.occurred_at
+            for name, event in expected_event_roles.items()
+        ):
+            raise PropositionProvenanceError(
+                "event roles do not match the unique role selection from the evidence manifest"
+            )
 
         for item in proposition.field_provenance:
             for event_id in item.event_ids:
@@ -365,6 +394,59 @@ class PropositionProvenanceValidator:
             ):
                 raise PropositionProvenanceError(
                     f"temporal parameter value or provenance is inconsistent: {binding.parameter_name}"
+                )
+
+        # Resolve every relationship binding against the complete set of
+        # explicitly selected observations, not merely the relationship ID
+        # already claimed by the proposition.
+        selected_relationships: list[Relationship] = []
+        for observation_id in manifest_selected_observation_ids:
+            offset = 0
+            while True:
+                batch = self.repository.list_relationships(
+                    observation_id=observation_id, limit=500, offset=offset
+                )
+                if not isinstance(batch, tuple) or not all(
+                    isinstance(item, Relationship) for item in batch
+                ):
+                    raise PropositionProvenanceError(
+                        "repository returned invalid relationship records"
+                    )
+                if any(item.observation_id != observation_id for item in batch):
+                    raise PropositionProvenanceError(
+                        "selected relationship has mismatched observation provenance"
+                    )
+                selected_relationships.extend(batch)
+                if len(batch) < 500:
+                    break
+                offset += 500
+
+        for binding in construction.relationship_parameter_bindings:
+            source_role = roles.get(binding.source_entity_role)
+            target_role = roles.get(binding.target_entity_role)
+            if source_role is None or target_role is None:
+                continue
+            try:
+                expected_relationship = resolve_relationship(
+                    tuple(selected_relationships),
+                    binding,
+                    source_role.value_id,
+                    target_role.value_id,
+                    required=parameter_definitions[binding.parameter_name].required,
+                )
+            except (TypeError, ValueError) as exc:
+                raise PropositionProvenanceError(str(exc)) from exc
+            claimed = provenance.get(binding.parameter_name)
+            if expected_relationship is None:
+                if claimed is not None:
+                    raise PropositionProvenanceError(
+                        f"relationship provenance claims an unavailable optional binding: {binding.parameter_name}"
+                    )
+            elif claimed is None or claimed.relationship_ids != (
+                expected_relationship.relationship_id,
+            ):
+                raise PropositionProvenanceError(
+                    f"relationship binding is omitted or does not match the unique manifest selection: {binding.parameter_name}"
                 )
 
         for binding in construction.relationship_parameter_bindings:
