@@ -377,6 +377,7 @@ class PropositionConstructor:
         relationships = {}
         for observation_id in observations:
             offset = 0
+            paged_relationship_ids: set[str] = set()
             while True:
                 batch = self.repository.list_relationships(
                     observation_id=observation_id,
@@ -390,6 +391,11 @@ class PropositionConstructor:
                 for relationship in batch:
                     if relationship.observation_id != observation_id:
                         raise DatabaseIntegrityError("relationship observation provenance mismatch")
+                    if relationship.relationship_id in paged_relationship_ids:
+                        raise DatabaseIntegrityError(
+                            "repository pagination repeated a relationship record"
+                        )
+                    paged_relationship_ids.add(relationship.relationship_id)
                     relationships[relationship.relationship_id] = relationship
                 if len(batch) < 500:
                     break
