@@ -416,7 +416,7 @@ def test_opposing_findings_across_independent_criteria_aggregate_as_conflicting(
             criterion_id=second_criterion.criterion_id,
             outcome_code="observed",
             alternative_id=RESIDUAL_ALTERNATIVE_ID,
-            focal_judgment="compatible",
+            focal_judgment="unexpected",
             alternative_judgment="compatible",
             evaluability_role="contextual",
             rationale="The residual remains compatible.",
