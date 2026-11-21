@@ -113,7 +113,7 @@ class PropositionEvidenceManifest:
             raise TypeError("evidence manifest evidence must be a tuple")
         if not self.evidence:
             raise ValueError("evidence manifest must not be empty")
-        if not all(isinstance(item, EvidenceReference) for item in self.evidence):
+        if not all(type(item) is EvidenceReference for item in self.evidence):
             raise TypeError(
                 "evidence manifest must contain EvidenceReference objects"
             )
@@ -149,18 +149,18 @@ class Proposition:
             raise ValueError("semantics_version must be a positive integer")
         if not isinstance(self.roles, tuple) or not self.roles:
             raise TypeError("roles must be a non-empty tuple")
-        if not all(isinstance(item, PropositionRoleValue) for item in self.roles):
+        if not all(type(item) is PropositionRoleValue for item in self.roles):
             raise TypeError("roles must contain PropositionRoleValue objects")
         names = tuple(item.role_name for item in self.roles)
         if len(names) != len(set(names)):
             raise ValueError("proposition role names must be unique")
-        if not isinstance(self.evidence_manifest, PropositionEvidenceManifest):
+        if not type(self.evidence_manifest) is PropositionEvidenceManifest:
             raise TypeError("evidence_manifest must be a PropositionEvidenceManifest")
-        if not isinstance(self.temporal_scope, PropositionTemporalScope):
+        if not type(self.temporal_scope) is PropositionTemporalScope:
             raise TypeError("temporal_scope must be a PropositionTemporalScope")
         if not isinstance(self.field_provenance, tuple) or not self.field_provenance:
             raise TypeError("field_provenance must be a non-empty tuple")
-        if not all(isinstance(item, PropositionFieldProvenance) for item in self.field_provenance):
+        if not all(type(item) is PropositionFieldProvenance for item in self.field_provenance):
             raise TypeError("field_provenance must contain PropositionFieldProvenance objects")
         provenance_names = tuple(item.field_name for item in self.field_provenance)
         if len(provenance_names) != len(set(provenance_names)):
@@ -322,7 +322,7 @@ class StructuredHypothesis:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "hypothesis_id", validate_id(self.hypothesis_id, "hypothesis_id"))
-        if not isinstance(self.proposition, Proposition):
+        if not type(self.proposition) is Proposition:
             raise TypeError("proposition must be a Proposition")
         object.__setattr__(self, "created_at", normalize_timestamp(self.created_at, "created_at"))
         if type(self.schema_version) is not int or self.schema_version != SCHEMA_VERSION:
