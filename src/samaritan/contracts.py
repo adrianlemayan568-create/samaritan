@@ -47,6 +47,22 @@ def validate_text(value: str, field_name: str) -> str:
     return value
 
 
+def validate_identifier(value: str, field_name: str) -> str:
+    """Validate a bounded, unambiguous ASCII identifier used in registries."""
+    value = validate_text(value, field_name)
+    if (
+        not value.isascii()
+        or len(value) > 128
+        or not value[0].isalpha()
+        or any(not (char.isalnum() or char in "_.-") for char in value)
+    ):
+        raise ValueError(
+            f"{field_name} must be a 1-128 character ASCII identifier "
+            "using letters, digits, underscore, dot, or hyphen"
+        )
+    return value
+
+
 def normalize_timestamp(value: datetime, field_name: str) -> datetime:
     """Require an aware datetime and normalize it to UTC."""
     if not isinstance(value, datetime):
