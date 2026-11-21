@@ -62,6 +62,26 @@ def make_proposition():
     )
 
 
+def test_evidence_manifest_rejects_empty_selection():
+    with pytest.raises(ValueError, match="evidence manifest must not be empty"):
+        PropositionEvidenceManifest(
+            evidence_set_id=str(uuid4()),
+            evidence=(),
+        )
+
+
+def test_evidence_manifest_preserves_overlapping_reference_granularity_and_order():
+    observation_reference = EvidenceReference(observation_id=str(uuid4()))
+    event_reference = EvidenceReference(event_id=str(uuid4()))
+
+    manifest = PropositionEvidenceManifest(
+        evidence_set_id=str(uuid4()),
+        evidence=(observation_reference, event_reference),
+    )
+
+    assert manifest.evidence == (observation_reference, event_reference)
+
+
 def test_structured_proposition_validates_against_exact_semantics():
     proposition = make_proposition()
     semantics = build_default_proposition_semantics_registry().get(
