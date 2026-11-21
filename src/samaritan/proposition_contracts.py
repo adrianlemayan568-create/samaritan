@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import uuid
+
+from samaritan.analysis_contracts import EvidenceReference
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -96,6 +98,32 @@ class PropositionTemporalScope:
 
 
 @dataclass(frozen=True, slots=True)
+class PropositionEvidenceManifest:
+    """Preserve the exact immutable evidence selection used for construction."""
+
+    evidence_set_id: str
+    evidence: tuple[EvidenceReference, ...]
+    schema_version: int = SCHEMA_VERSION
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "evidence_set_id",
+            validate_id(self.evidence_set_id, "evidence_set_id"),
+        )
+        if not isinstance(self.evidence, tuple):
+            raise TypeError("evidence manifest evidence must be a tuple")
+        if not all(isinstance(item, EvidenceReference) for item in self.evidence):
+            raise TypeError(
+                "evidence manifest must contain EvidenceReference objects"
+            )
+        keys = [(item.observation_id, item.event_id) for item in self.evidence]
+        if len(keys) != len(set(keys)):
+            raise ValueError("evidence manifest contains duplicate references")
+        if type(self.schema_version) is not int or self.schema_version != SCHEMA_VERSION:
+            raise ValueError("unsupported proposition evidence manifest schema version")
+
+
+@dataclass(frozen=True, slots=True)
 class Proposition:
     """An atomic proposition with exact semantics, role values, scope and provenance."""
 
@@ -109,6 +137,7 @@ class Proposition:
     construction_version: int
     semantics_fingerprint: str
     identity_algorithm_version: str
+    evidence_manifest: PropositionEvidenceManifest
     parameters_json: str = "{}"
     schema_version: int = SCHEMA_VERSION
 
@@ -124,6 +153,8 @@ class Proposition:
         names = tuple(item.role_name for item in self.roles)
         if len(names) != len(set(names)):
             raise ValueError("proposition role names must be unique")
+        if not isinstance(self.evidence_manifest, PropositionEvidenceManifest):
+            raise TypeError("evidence_manifest must be a PropositionEvidenceManifest")
         if not isinstance(self.temporal_scope, PropositionTemporalScope):
             raise TypeError("temporal_scope must be a PropositionTemporalScope")
         if not isinstance(self.field_provenance, tuple) or not self.field_provenance:
