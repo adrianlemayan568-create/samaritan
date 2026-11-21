@@ -28,6 +28,10 @@ from samaritan.proposition_semantics import (
 )
 from samaritan.repository import Repository
 from samaritan.proposition_validation import PropositionProvenanceValidator
+from samaritan.proposition_evidence_selection import (
+    resolve_event_roles,
+    resolve_relationship,
+)
 
 
 class PropositionConstructionError(ValueError):
@@ -135,20 +139,13 @@ class PropositionConstructor:
                 )
 
         events, selected_observations = self._resolve_evidence(evidence_set.evidence)
-        selected_events: dict[str, Event] = {}
-        for role_name, binding in event_definitions.items():
-            matches = [event for event in events.values() if event.event_type == binding.event_type]
-            if len(matches) > 1:
-                raise PropositionConstructionError(
-                    f"expected at most one {binding.event_type} event for {role_name}; found {len(matches)}"
-                )
-            if not matches:
-                if semantic_roles[role_name].required:
-                    raise PropositionConstructionError(
-                        f"expected exactly one {binding.event_type} event for {role_name}; found 0"
-                    )
-                continue
-            selected_events[role_name] = matches[0]
+        try:
+            resolved_selection = resolve_event_roles(
+                semantics, construction, tuple(events.values())
+            )
+        except (TypeError, ValueError) as exc:
+            raise PropositionConstructionError(str(exc)) from exc
+        selected_events = dict(resolved_selection.event_roles)
 
         role_values: dict[str, PropositionRoleValue] = {}
         provenance: dict[str, PropositionFieldProvenance] = {}
@@ -337,23 +334,18 @@ class PropositionConstructor:
                     continue
                 source_id = source_role.value_id
                 target_id = target_role.value_id
-                matches = [
-                    item for item in relationships
-                    if item.relationship_type == binding.relationship_type
-                    and item.source_entity_id == source_id
-                    and item.target_entity_id == target_id
-                ]
-                if len(matches) > 1:
-                    raise PropositionConstructionError(
-                        f"expected exactly one relationship of type {binding.relationship_type}; found {len(matches)}"
+                try:
+                    relationship = resolve_relationship(
+                        relationships,
+                        binding,
+                        source_id,
+                        target_id,
+                        required=parameter_definitions[binding.parameter_name].required,
                     )
-                if not matches:
-                    if parameter_definitions[binding.parameter_name].required:
-                        raise PropositionConstructionError(
-                            f"expected exactly one relationship of type {binding.relationship_type}; found 0"
-                        )
+                except (TypeError, ValueError) as exc:
+                    raise PropositionConstructionError(str(exc)) from exc
+                if relationship is None:
                     continue
-                relationship = matches[0]
                 if binding.relationship_field == "relationship_id":
                     value = relationship.relationship_id
                 elif binding.relationship_field == "relationship_type":
