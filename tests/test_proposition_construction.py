@@ -1444,3 +1444,64 @@ def test_semantics_without_required_event_role_requires_explicit_scope():
             temporal_constraints=(),
             temporal_scope=None,
         )
+
+
+
+def test_proposition_preserves_exact_immutable_evidence_selection_manifest(tmp_path):
+    repository, source, start = make_repository(tmp_path)
+    account = Entity(
+        entity_id=new_id(), entity_type="user_account",
+        canonical_identifier="manifest-preservation", created_at=start,
+    )
+    _, evidence_set = _make_authentication_evidence(
+        repository, source, account, start
+    )
+
+    proposition = make_constructor(repository).construct(
+        evidence_set, "account_authentication_sequence", 1
+    )
+
+    assert proposition.evidence_manifest.evidence_set_id == evidence_set.evidence_set_id
+    assert proposition.evidence_manifest.evidence == evidence_set.evidence
+    assert proposition.evidence_manifest.evidence is not evidence_set.evidence or (
+        proposition.evidence_manifest.evidence == evidence_set.evidence
+    )
+    with pytest.raises(AttributeError):
+        proposition.evidence_manifest.evidence_set_id = new_id()
+
+
+def test_validator_rejects_field_provenance_outside_evidence_manifest(tmp_path):
+    repository, source, start = make_repository(tmp_path)
+    account = Entity(
+        entity_id=new_id(), entity_type="user_account",
+        canonical_identifier="manifest-boundary", created_at=start,
+    )
+    _, evidence_set = _make_authentication_evidence(
+        repository, source, account, start
+    )
+    constructor = make_constructor(repository)
+    proposition = constructor.construct(
+        evidence_set, "account_authentication_sequence", 1
+    )
+    omitted_event_id = proposition.field_provenance[0].event_ids[0]
+    reduced_references = tuple(
+        item for item in proposition.evidence_manifest.evidence
+        if item.event_id != omitted_event_id
+    )
+    forged = replace(
+        proposition,
+        evidence_manifest=replace(
+            proposition.evidence_manifest,
+            evidence=reduced_references,
+        ),
+    )
+
+    with pytest.raises(
+        PropositionProvenanceError,
+        match="field provenance event is outside the evidence manifest",
+    ):
+        PropositionProvenanceValidator(
+            repository,
+            constructor.semantics_registry,
+            constructor.construction_registry,
+        ).validate(forged)
