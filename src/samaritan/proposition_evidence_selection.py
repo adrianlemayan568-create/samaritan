@@ -51,7 +51,7 @@ def resolve_event_roles(
     if not type(construction) is PropositionConstructionDefinition:
         raise TypeError("construction must be PropositionConstructionDefinition")
     if not isinstance(selected_events, tuple) or not all(
-        isinstance(event, Event) for event in selected_events
+        type(event) is Event for event in selected_events
     ):
         raise TypeError("selected_events must be a tuple of Event records")
 
@@ -183,7 +183,7 @@ def resolve_relationship(
 ) -> Relationship | None:
     """Resolve one relationship binding against all explicitly selected observations."""
     if not isinstance(relationships, tuple) or not all(
-        isinstance(item, Relationship) for item in relationships
+        type(item) is Relationship for item in relationships
     ):
         raise TypeError("relationships must be a tuple of Relationship records")
     if not type(binding) is RelationshipParameterBinding:
