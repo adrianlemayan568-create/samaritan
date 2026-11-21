@@ -1647,3 +1647,51 @@ def test_validator_rejects_omitted_optional_event_role_when_manifest_has_match(t
         PropositionProvenanceValidator(
             repository, constructor.semantics_registry, constructor.construction_registry
         ).validate(forged)
+
+
+def test_constructor_rejects_one_event_bound_to_multiple_semantic_roles(tmp_path):
+    repository, source, start = make_repository(tmp_path)
+    account = Entity(
+        entity_id=new_id(), entity_type="user_account",
+        canonical_identifier="duplicate-role-binding", created_at=start,
+    )
+    _, evidence_set = _make_authentication_evidence(
+        repository, source, account, start
+    )
+    base_semantics = build_default_proposition_semantics_registry().get(
+        "account_authentication_sequence", 1
+    )
+    optional_duplicate = PropositionRoleDefinition(
+        role_name="second_failure_event",
+        role_kind="event",
+        cardinality="one",
+        event_type="authentication_failure",
+        meaning="An additional optional failure-event role.",
+        required=False,
+    )
+    semantics_registry = PropositionSemanticsRegistry()
+    semantics_registry.register(
+        replace(base_semantics, roles=base_semantics.roles + (optional_duplicate,))
+    )
+    base_construction = build_default_proposition_construction_registry().get(
+        "account_authentication_sequence", 1
+    )
+    construction_registry = PropositionConstructionRegistry()
+    construction_registry.register(
+        replace(
+            base_construction,
+            event_bindings=base_construction.event_bindings
+            + (EventRoleBinding("second_failure_event", "authentication_failure"),),
+        )
+    )
+    constructor = PropositionConstructor(
+        repository, semantics_registry, construction_registry
+    )
+
+    with pytest.raises(
+        PropositionConstructionError,
+        match="one source event cannot satisfy multiple semantic roles",
+    ):
+        constructor.construct(
+            evidence_set, "account_authentication_sequence", 1
+        )
