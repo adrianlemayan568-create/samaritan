@@ -1818,7 +1818,7 @@ def test_constructor_normalizes_expected_repository_boundary_failures(
 
 @pytest.mark.parametrize(
     "failure",
-    ["key_error", "sqlite_error", "unicode_error", "attribute_error"],
+    ["key_error", "sqlite_error", "unicode_error", "attribute_error", "type_error", "missing_record"],
 )
 def test_validator_normalizes_expected_repository_boundary_failures(
     tmp_path, monkeypatch, failure
@@ -1869,5 +1869,8 @@ def test_validator_normalizes_expected_repository_boundary_failures(
     with pytest.raises(PropositionProvenanceError) as captured:
         validator.validate(proposition)
 
-    assert captured.value.__cause__ is original_error
+    if original_error is None:
+        assert captured.value.__cause__ is not None
+    else:
+        assert captured.value.__cause__ is original_error
 
