@@ -717,3 +717,28 @@ def test_verify_schema_rejects_unexpected_trigger(tmp_path):
 
     with pytest.raises(DatabaseIntegrityError, match="definitions"):
         database.verify_schema()
+
+
+def test_verify_schema_rejects_unsealed_evidence_set_record(tmp_path):
+    database = make_database(tmp_path)
+
+    with database.connection() as connection:
+        connection.execute(
+            """
+            INSERT INTO evidence_sets (
+                evidence_set_id, created_at, schema_version, is_sealed
+            )
+            VALUES (?, ?, ?, 0)
+            """,
+            (
+                "unsealed-evidence-set",
+                "2026-11-13T10:00:00+00:00",
+                1,
+            ),
+        )
+
+    with pytest.raises(
+        DatabaseIntegrityError,
+        match="unsealed evidence set",
+    ):
+        database.verify_schema()
