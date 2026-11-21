@@ -104,6 +104,75 @@ def resolve_event_roles(
     return ResolvedPropositionSelection(tuple(resolved))
 
 
+@dataclass(frozen=True, slots=True)
+class ResolvedEntityRole:
+    """One entity role and the exact participant events that resolve it."""
+
+    role_name: str
+    entity_id: str
+    event_ids: tuple[str, ...]
+    observation_ids: tuple[str, ...]
+
+
+def resolve_entity_roles(
+    semantics: PropositionSemantics,
+    construction: PropositionConstructionDefinition,
+    event_selection: ResolvedPropositionSelection,
+) -> tuple[ResolvedEntityRole, ...]:
+    """Resolve entity roles from the selected event roles and registered participants."""
+    if not isinstance(event_selection, ResolvedPropositionSelection):
+        raise TypeError("event_selection must be ResolvedPropositionSelection")
+    semantic_roles = {item.role_name: item for item in semantics.roles}
+    selected_events = dict(event_selection.event_roles)
+    resolved: list[ResolvedEntityRole] = []
+    for binding in construction.entity_bindings:
+        definition = semantic_roles.get(binding.semantic_role)
+        if definition is None or definition.role_kind != "entity":
+            raise EvidenceSelectionError(
+                f"entity binding references an undeclared entity role: {binding.semantic_role}"
+            )
+        entity_ids: list[str] = []
+        source_events: list[Event] = []
+        missing_dependency = False
+        for participant_binding in binding.participant_bindings:
+            event = selected_events.get(participant_binding.event_role)
+            if event is None:
+                missing_dependency = True
+                break
+            matches = [
+                participant.entity_id
+                for participant in event.participants
+                if participant.role == participant_binding.participant_role
+            ]
+            if len(matches) != 1:
+                raise EvidenceSelectionError(
+                    f"expected exactly one participant with role "
+                    f"{participant_binding.participant_role!r} in "
+                    f"{participant_binding.event_role}; found {len(matches)}"
+                )
+            entity_ids.append(matches[0])
+            source_events.append(event)
+        if missing_dependency:
+            if definition.required:
+                raise EvidenceSelectionError(
+                    f"required entity role {binding.semantic_role} depends on an absent optional event role"
+                )
+            continue
+        if len(set(entity_ids)) != 1:
+            raise EvidenceSelectionError(
+                f"entity role {binding.semantic_role} resolves to different entities across source events"
+            )
+        resolved.append(
+            ResolvedEntityRole(
+                role_name=binding.semantic_role,
+                entity_id=entity_ids[0],
+                event_ids=tuple(dict.fromkeys(item.event_id for item in source_events)),
+                observation_ids=tuple(dict.fromkeys(item.observation_id for item in source_events)),
+            )
+        )
+    return tuple(resolved)
+
+
 def resolve_relationship(
     relationships: tuple[Relationship, ...],
     binding: RelationshipParameterBinding,
