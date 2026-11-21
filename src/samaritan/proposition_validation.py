@@ -124,8 +124,10 @@ class PropositionProvenanceValidator:
             )
 
         # Resolve the immutable evidence-selection manifest independently of
-        # field provenance. Unused selected evidence remains selection context,
-        # not supporting provenance.
+        # field provenance. Observation references select the observation and
+        # its child records; event references select one event. An event's
+        # parent observation is loaded only to verify provenance and does not
+        # authorize unrelated observation-level records such as relationships.
         manifest_selected_observation_ids: set[str] = set()
         manifest_provenance_observation_ids: set[str] = set()
         manifest_event_ids: set[str] = set()
