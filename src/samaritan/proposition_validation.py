@@ -399,4 +399,3 @@ class PropositionProvenanceValidator:
                 raise PropositionProvenanceError(
                     f"parameter claims a source that is unavailable: {parameter_name}"
                 )
-
