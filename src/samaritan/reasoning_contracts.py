@@ -511,12 +511,27 @@ class HypothesisEvaluationRule:
             raise TypeError("outcome_registry must be a CriterionOutcomeRegistry")
         expected_alternatives = set(alternative_ids) | {RESIDUAL_ALTERNATIVE_ID}
         for criterion in self.criterion_definitions:
-            for code in evaluator_registry.output_codes_for(criterion):
-                outcome_registry.get(
+            registered_codes = {
+                item.outcome_code
+                for item in outcome_registry.list_for(
                     criterion.criterion_type,
                     criterion.outcome_vocabulary_version,
-                    code,
                 )
+            }
+            emitted_codes = set(evaluator_registry.output_codes_for(criterion))
+            if not emitted_codes.issubset(registered_codes):
+                missing_codes = sorted(emitted_codes - registered_codes)
+                raise ValueError(
+                    f"evaluator outcomes are not registered for {criterion.criterion_id}: {missing_codes}"
+                )
+            for bearing in self.bearing_definitions:
+                if bearing.criterion_id == criterion.criterion_id:
+                    outcome_registry.get(
+                        criterion.criterion_type,
+                        criterion.outcome_vocabulary_version,
+                        bearing.outcome_code,
+                    )
+            for code in registered_codes:
                 for alternative_id in expected_alternatives:
                     if not any(
                         item.criterion_id == criterion.criterion_id
