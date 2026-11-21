@@ -22,7 +22,7 @@ def _validate_nfc_identifier(value: str, field_name: str) -> str:
     normalized = unicodedata.normalize("NFC", value)
     if value != normalized:
         raise ValueError(f"{field_name} must be Unicode NFC normalized")
-    return value
+    return validate_identifier(value, field_name)
 
 
 def _validate_schema_version(value: int, field_name: str) -> None:
@@ -49,7 +49,7 @@ class PropositionRoleDefinition:
     def __post_init__(self) -> None:
         object.__setattr__(
             self, "role_name", _validate_nfc_identifier(
-                validate_identifier(self.role_name, "role_name"), "role_name"
+                validate_text(self.role_name, "role_name"), "role_name"
             )
         )
         object.__setattr__(
@@ -77,7 +77,7 @@ class PropositionRoleDefinition:
                 self,
                 "entity_type",
                 _validate_nfc_identifier(
-                    validate_identifier(self.entity_type, "entity_type"), "entity_type"
+                    validate_text(self.entity_type, "entity_type"), "entity_type"
                 ),
             )
         else:
@@ -89,7 +89,7 @@ class PropositionRoleDefinition:
                 self,
                 "event_type",
                 _validate_nfc_identifier(
-                    validate_identifier(self.event_type, "event_type"), "event_type"
+                    validate_text(self.event_type, "event_type"), "event_type"
                 ),
             )
 
@@ -114,12 +114,12 @@ class TemporalConstraintDefinition:
     def __post_init__(self) -> None:
         object.__setattr__(
             self, "earlier_role", _validate_nfc_identifier(
-                validate_identifier(self.earlier_role, "earlier_role"), "earlier_role"
+                validate_text(self.earlier_role, "earlier_role"), "earlier_role"
             )
         )
         object.__setattr__(
             self, "later_role", _validate_nfc_identifier(
-                validate_identifier(self.later_role, "later_role"), "later_role"
+                validate_text(self.later_role, "later_role"), "later_role"
             )
         )
         object.__setattr__(
@@ -155,12 +155,12 @@ class TemporalScopeDefinition:
     def __post_init__(self) -> None:
         object.__setattr__(
             self, "start_role", _validate_nfc_identifier(
-                validate_identifier(self.start_role, "start_role"), "start_role"
+                validate_text(self.start_role, "start_role"), "start_role"
             )
         )
         object.__setattr__(
             self, "end_role", _validate_nfc_identifier(
-                validate_identifier(self.end_role, "end_role"), "end_role"
+                validate_text(self.end_role, "end_role"), "end_role"
             )
         )
 
@@ -194,7 +194,7 @@ class SemanticParameterDefinition:
             self,
             "parameter_name",
             _validate_nfc_identifier(
-                validate_identifier(self.parameter_name, "parameter_name"), "parameter_name"
+                validate_text(self.parameter_name, "parameter_name"), "parameter_name"
             ),
         )
         object.__setattr__(
@@ -254,7 +254,7 @@ class PropositionSemantics:
             self,
             "proposition_type",
             _validate_nfc_identifier(
-                validate_identifier(self.proposition_type, "proposition_type"), "proposition_type"
+                validate_text(self.proposition_type, "proposition_type"), "proposition_type"
             ),
         )
         if not isinstance(self.description, str):
