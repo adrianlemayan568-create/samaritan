@@ -18,7 +18,7 @@ from samaritan.proposition_contracts import (
     PropositionFieldProvenance,
     PropositionRoleValue,
     PropositionTemporalScope,
-    LEGACY_PROPOSITION_IDENTITY_ALGORITHM,
+    CURRENT_PROPOSITION_IDENTITY_ALGORITHM,
     StructuredHypothesis,
     deterministic_proposition_id,
 )
@@ -36,6 +36,12 @@ from samaritan.reasoning_contracts import (
     RESIDUAL_ALTERNATIVE_ID,
 )
 from samaritan.repository import Repository
+from samaritan.proposition_semantics import (
+    PropositionRoleDefinition,
+    PropositionSemantics,
+    PropositionSemanticsRegistry,
+)
+from samaritan.proposition_semantics_fingerprint import proposition_semantics_fingerprint
 
 
 _TEST_SEMANTICS_FINGERPRINT = "test-semantics-fingerprint-v1"
@@ -70,9 +76,34 @@ def make_evaluation_context(tmp_path):
         participants=(),
     )
     repository.persist_observation(observation, events=(event,))
+    semantics = PropositionSemantics(
+        proposition_type="test_authentication",
+        semantics_version=1,
+        roles=(
+            PropositionRoleDefinition(
+                role_name="success_event",
+                role_kind="event",
+                cardinality="one",
+                event_type="authentication_success",
+                meaning="The successful authentication event.",
+            ),
+        ),
+    )
+    semantics_registry = PropositionSemanticsRegistry()
+    semantics_registry.register(semantics)
+    semantics_fingerprint = proposition_semantics_fingerprint(semantics)
     evidence_set_id = new_id()
     proposition = Proposition(
-        proposition_id=new_id(),
+        proposition_id=deterministic_proposition_id(
+            "test_authentication",
+            1,
+            (PropositionRoleValue(
+                "success_event", "event", event.event_id, event.occurred_at
+            ),),
+            PropositionTemporalScope(now, now),
+            semantics_fingerprint=semantics_fingerprint,
+            identity_algorithm_version=CURRENT_PROPOSITION_IDENTITY_ALGORITHM,
+        ),
         proposition_type="test_authentication",
         semantics_version=1,
         roles=(
@@ -90,8 +121,8 @@ def make_evaluation_context(tmp_path):
         ),
         construction_id="test-construction",
         construction_version=1,
-        semantics_fingerprint=_TEST_SEMANTICS_FINGERPRINT,
-        identity_algorithm_version=LEGACY_PROPOSITION_IDENTITY_ALGORITHM,
+        semantics_fingerprint=semantics_fingerprint,
+        identity_algorithm_version=CURRENT_PROPOSITION_IDENTITY_ALGORITHM,
         evidence_manifest=PropositionEvidenceManifest(
             evidence_set_id=evidence_set_id,
             evidence=(EvidenceReference(event_id=event.event_id),),
@@ -102,11 +133,11 @@ def make_evaluation_context(tmp_path):
         evidence=(EvidenceReference(event_id=event.event_id),),
         created_at=now,
     )
-    return repository, proposition, evidence_set, event
+    return repository, proposition, evidence_set, event, semantics_registry
 
 
 def test_registered_event_attribute_evaluator_returns_stance_neutral_finding(tmp_path):
-    repository, proposition, evidence_set, event = make_evaluation_context(tmp_path)
+    repository, proposition, evidence_set, event, _ = make_evaluation_context(tmp_path)
     parameters = (
         CriterionParameterDefinition("event_role", "string", required=True),
         CriterionParameterDefinition("attribute_name", "string", required=True),
@@ -223,6 +254,8 @@ def test_hypothesis_evaluation_engine_runs_findings_and_synthesis_end_to_end(tmp
             proposition.semantics_version,
             alternative_roles,
             alternative_scope,
+            semantics_fingerprint=proposition.semantics_fingerprint,
+            identity_algorithm_version=proposition.identity_algorithm_version,
         ),
         proposition_type=proposition.proposition_type,
         semantics_version=proposition.semantics_version,
@@ -314,7 +347,7 @@ def test_hypothesis_evaluation_engine_runs_findings_and_synthesis_end_to_end(tmp
         evaluation_rule=rule,
     )
     record = HypothesisEvaluationEngine(
-        repository, evaluators, outcomes
+        repository, evaluators, outcomes, semantics_registry=semantics_registry
     ).evaluate(specification, evidence_set)
     assert record.evaluation_rule_id == rule.evaluation_rule_id
     assert record.evidence_set_id == evidence_set.evidence_set_id
@@ -326,7 +359,7 @@ def test_hypothesis_evaluation_engine_runs_findings_and_synthesis_end_to_end(tmp
 def test_missing_registered_attribute_is_insufficient_not_a_negative_finding(tmp_path):
     import pytest
 
-    repository, proposition, evidence_set, _ = make_evaluation_context(tmp_path)
+    repository, proposition, evidence_set, _, _ = make_evaluation_context(tmp_path)
     parameters = (
         CriterionParameterDefinition("event_role", "string", required=True),
         CriterionParameterDefinition("attribute_name", "string", required=True),
