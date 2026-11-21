@@ -340,7 +340,10 @@ class PropositionProvenanceValidator:
                     f"required parameter depends on an absent optional role: {parameter_name}"
                 )
             if source_present or (
-                value_present and parameters[parameter_name] != definition.default_value
+                value_present and (
+                    type(parameters[parameter_name]) is not type(definition.default_value)
+                    or parameters[parameter_name] != definition.default_value
+                )
             ):
                 raise PropositionProvenanceError(
                     f"parameter claims a source that is unavailable: {parameter_name}"
@@ -357,7 +360,10 @@ class PropositionProvenanceValidator:
                 raise PropositionProvenanceError(
                     f"source event is missing the registered attribute for parameter: {binding.parameter_name}"
                 )
-            if parameters.get(binding.parameter_name) != attributes[binding.attribute_name]:
+            if (
+                type(parameters.get(binding.parameter_name)) is not type(attributes[binding.attribute_name])
+                or parameters.get(binding.parameter_name) != attributes[binding.attribute_name]
+            ):
                 raise PropositionProvenanceError(
                     f"parameter value does not match its registered event attribute: {binding.parameter_name}"
                 )
@@ -387,6 +393,7 @@ class PropositionProvenanceValidator:
             if (
                 not seconds.is_integer()
                 or seconds < 0
+                or type(parameters.get(binding.parameter_name)) is not int
                 or parameters.get(binding.parameter_name) != int(seconds)
                 or source.event_ids != (earlier.event_id, later.event_id)
                 or source.observation_ids != expected_observations
@@ -535,7 +542,10 @@ class PropositionProvenanceValidator:
                 expected_value = relationship.relationship_type
             else:
                 expected_value = relationship.observed_at.isoformat()
-            if parameters.get(binding.parameter_name) != expected_value:
+            if (
+                type(parameters.get(binding.parameter_name)) is not type(expected_value)
+                or parameters.get(binding.parameter_name) != expected_value
+            ):
                 raise PropositionProvenanceError(
                     f"relationship parameter value does not match its source: {binding.parameter_name}"
                 )
