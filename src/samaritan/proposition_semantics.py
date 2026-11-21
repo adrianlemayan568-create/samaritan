@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import unicodedata
 
 from samaritan.contracts import SCHEMA_VERSION, validate_text
 
@@ -12,6 +13,14 @@ ROLE_KINDS = frozenset({"entity", "event"})
 ROLE_CARDINALITIES = frozenset({"one"})
 TEMPORAL_RELATIONS = frozenset({"precedes"})
 PARAMETER_TYPES = frozenset({"string", "integer", "boolean"})
+
+
+def _validate_nfc_identifier(value: str, field_name: str) -> str:
+    """Require identifiers to use one canonical Unicode representation."""
+    normalized = unicodedata.normalize("NFC", value)
+    if value != normalized:
+        raise ValueError(f"{field_name} must be Unicode NFC normalized")
+    return value
 
 
 def _validate_schema_version(value: int, field_name: str) -> None:
@@ -37,7 +46,9 @@ class PropositionRoleDefinition:
 
     def __post_init__(self) -> None:
         object.__setattr__(
-            self, "role_name", validate_text(self.role_name, "role_name")
+            self, "role_name", _validate_nfc_identifier(
+                validate_text(self.role_name, "role_name"), "role_name"
+            )
         )
         object.__setattr__(
             self, "role_kind", validate_text(self.role_kind, "role_kind")
@@ -63,7 +74,9 @@ class PropositionRoleDefinition:
             object.__setattr__(
                 self,
                 "entity_type",
-                validate_text(self.entity_type, "entity_type"),
+                _validate_nfc_identifier(
+                    validate_text(self.entity_type, "entity_type"), "entity_type"
+                ),
             )
         else:
             if self.event_type is None or self.entity_type is not None:
@@ -73,7 +86,9 @@ class PropositionRoleDefinition:
             object.__setattr__(
                 self,
                 "event_type",
-                validate_text(self.event_type, "event_type"),
+                _validate_nfc_identifier(
+                    validate_text(self.event_type, "event_type"), "event_type"
+                ),
             )
 
         _validate_schema_version(
@@ -168,7 +183,9 @@ class SemanticParameterDefinition:
         object.__setattr__(
             self,
             "parameter_name",
-            validate_text(self.parameter_name, "parameter_name"),
+            _validate_nfc_identifier(
+                validate_text(self.parameter_name, "parameter_name"), "parameter_name"
+            ),
         )
         object.__setattr__(
             self, "value_type", validate_text(self.value_type, "value_type")
@@ -226,7 +243,9 @@ class PropositionSemantics:
         object.__setattr__(
             self,
             "proposition_type",
-            validate_text(self.proposition_type, "proposition_type"),
+            _validate_nfc_identifier(
+                validate_text(self.proposition_type, "proposition_type"), "proposition_type"
+            ),
         )
         if not isinstance(self.description, str):
             raise TypeError("description must be a string")
