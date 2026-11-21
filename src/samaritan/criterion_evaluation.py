@@ -61,7 +61,7 @@ class CriterionEvaluationEngine:
             raise TypeError("criterion must be a CriterionDefinition")
         if type(proposition) is not Proposition:
             raise TypeError("proposition must be a Proposition")
-        if not isinstance(evidence_set, EvidenceSet):
+        if type(evidence_set) is not EvidenceSet:
             raise TypeError("evidence_set must be an EvidenceSet")
 
         evaluator = self.evaluator_registry.validate_criterion(criterion)
