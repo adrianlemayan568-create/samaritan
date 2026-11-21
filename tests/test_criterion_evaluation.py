@@ -244,8 +244,40 @@ def test_hypothesis_evaluation_engine_runs_findings_and_synthesis_end_to_end(tmp
         meaning="The event attribute differs from the expected value.",
     ))
 
-    alternative_event_id = new_id()
-    alternative_observation_id = new_id()
+    alternative_source = Source(
+        source_id=new_id(),
+        source_type="synthetic",
+        name="alternative proposition construction evidence",
+        created_at=event.occurred_at,
+    )
+    repository.register_source(alternative_source)
+    alternative_observation = Observation(
+        observation_id=new_id(),
+        source_id=alternative_source.source_id,
+        received_at=event.occurred_at,
+        raw_payload='{"result":"failure"}',
+        payload_sha256=payload_checksum('{"result":"failure"}'),
+    )
+    alternative_event = Event(
+        event_id=new_id(),
+        observation_id=alternative_observation.observation_id,
+        event_type="authentication_success",
+        occurred_at=event.occurred_at,
+        original_timestamp=event.original_timestamp,
+        normalized_data_json='{"result":"failure"}',
+        participants=(),
+    )
+    repository.persist_observation(
+        alternative_observation, events=(alternative_event,)
+    )
+    alternative_evidence_set = EvidenceSet(
+        evidence_set_id=new_id(),
+        evidence=(EvidenceReference(event_id=alternative_event.event_id),),
+        created_at=event.occurred_at,
+    )
+    repository.persist_evidence_set(alternative_evidence_set)
+    alternative_event_id = alternative_event.event_id
+    alternative_observation_id = alternative_observation.observation_id
     alternative_roles = (
         PropositionRoleValue(
             "success_event", "event", alternative_event_id, event.occurred_at
@@ -278,8 +310,8 @@ def test_hypothesis_evaluation_engine_runs_findings_and_synthesis_end_to_end(tmp
         semantics_fingerprint=proposition.semantics_fingerprint,
         identity_algorithm_version=proposition.identity_algorithm_version,
         evidence_manifest=PropositionEvidenceManifest(
-            evidence_set_id=evidence_set.evidence_set_id,
-            evidence=(EvidenceReference(event_id=alternative_event_id),),
+            evidence_set_id=alternative_evidence_set.evidence_set_id,
+            evidence=alternative_evidence_set.evidence,
         ),
     )
     alternative = HypothesisAlternative(
@@ -378,6 +410,48 @@ def test_hypothesis_evaluation_engine_runs_findings_and_synthesis_end_to_end(tmp
     assert record.evidence_set_id == evidence_set.evidence_set_id
     assert record.findings[0].status == "matched"
     assert record.synthesis.outcome == "supported"
+
+    # An alternative's construction history is authenticated independently
+    # from the focal EvidenceSet used for comparative criterion evaluation.
+    missing_alternative_set = replace(
+        alternative.proposition.evidence_manifest,
+        evidence_set_id=new_id(),
+    )
+    missing_alternative = replace(
+        alternative,
+        proposition=replace(
+            alternative.proposition,
+            evidence_manifest=missing_alternative_set,
+        ),
+    )
+    missing_alternative_specification = replace(
+        specification, alternatives=(missing_alternative,)
+    )
+    with pytest.raises(
+        ValueError,
+        match="proposition evidence manifest must match its persisted historical selection",
+    ):
+        engine.evaluate(missing_alternative_specification, evidence_set)
+
+    mismatched_alternative_manifest = replace(
+        alternative.proposition.evidence_manifest,
+        evidence=(EvidenceReference(event_id=event.event_id),),
+    )
+    mismatched_alternative = replace(
+        alternative,
+        proposition=replace(
+            alternative.proposition,
+            evidence_manifest=mismatched_alternative_manifest,
+        ),
+    )
+    mismatched_alternative_specification = replace(
+        specification, alternatives=(mismatched_alternative,)
+    )
+    with pytest.raises(
+        ValueError,
+        match="proposition evidence manifest must match its persisted historical selection",
+    ):
+        engine.evaluate(mismatched_alternative_specification, evidence_set)
 
     altered_rule = replace(rule, description="Unregistered altered definition.")
     altered_specification = replace(
