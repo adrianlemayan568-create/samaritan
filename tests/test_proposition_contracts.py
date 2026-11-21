@@ -70,7 +70,7 @@ def test_evidence_manifest_rejects_empty_selection():
         )
 
 
-def test_evidence_manifest_preserves_overlapping_reference_granularity_and_order():
+def test_evidence_manifest_preserves_reference_granularity_and_order():
     observation_reference = EvidenceReference(observation_id=str(uuid4()))
     event_reference = EvidenceReference(event_id=str(uuid4()))
 
