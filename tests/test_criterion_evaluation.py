@@ -199,7 +199,7 @@ def test_evaluator_registry_rejects_arbitrary_evaluator_callbacks():
 
 
 def test_hypothesis_evaluation_engine_runs_findings_and_synthesis_end_to_end(tmp_path):
-    repository, proposition, evidence_set, event = make_evaluation_context(tmp_path)
+    repository, proposition, evidence_set, event, semantics_registry = make_evaluation_context(tmp_path)
     parameter_definitions = (
         CriterionParameterDefinition("event_role", "string", required=True),
         CriterionParameterDefinition("attribute_name", "string", required=True),
