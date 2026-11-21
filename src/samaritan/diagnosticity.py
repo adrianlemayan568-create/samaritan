@@ -33,9 +33,9 @@ class DiagnosticitySynthesizer:
         *,
         production: bool = True,
     ) -> DiagnosticitySynthesis:
-        if not isinstance(specification, HypothesisSpecification):
+        if type(specification) is not HypothesisSpecification:
             raise TypeError("specification must be a HypothesisSpecification")
-        if not isinstance(outcome_registry, CriterionOutcomeRegistry):
+        if type(outcome_registry) is not CriterionOutcomeRegistry:
             raise TypeError("outcome_registry must be a CriterionOutcomeRegistry")
         if isinstance(findings, (str, bytes)):
             raise TypeError("findings must be an iterable of CriterionFinding objects")
@@ -43,7 +43,7 @@ class DiagnosticitySynthesizer:
             supplied = tuple(findings)
         except TypeError as exc:
             raise TypeError("findings must be iterable") from exc
-        if not all(isinstance(item, CriterionFinding) for item in supplied):
+        if not all(type(item) is CriterionFinding for item in supplied):
             raise TypeError("findings must contain CriterionFinding objects")
 
         rule = specification.evaluation_rule
