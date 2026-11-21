@@ -84,6 +84,7 @@ class HypothesisEvaluationEngine:
             raise ValueError(
                 "proposition evidence manifest must match its persisted historical selection"
             )
+
     def evaluate(
         self,
         specification: HypothesisSpecification,
