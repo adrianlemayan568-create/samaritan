@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from samaritan.analysis_contracts import EvidenceReference
 from samaritan.criterion_evaluation import CriterionEvaluationEngine
