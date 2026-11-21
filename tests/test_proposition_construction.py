@@ -316,8 +316,9 @@ def test_temporal_difference_parameter_binding_is_deterministic(tmp_path):
 
 
 @pytest.mark.parametrize("duplicate_relationship", [False, True])
-def test_relationship_parameter_binding_requires_and_preserves_explicit_relationship(
-    tmp_path, duplicate_relationship
+@pytest.mark.parametrize("include_relationship_observation_reference", [False, True])
+def test_relationship_parameter_binding_requires_selected_observation_and_preserves_explicit_relationship(
+    tmp_path, duplicate_relationship, include_relationship_observation_reference
 ):
     repository, source, start = make_repository(tmp_path)
     account = Entity(
@@ -447,12 +448,18 @@ def test_relationship_parameter_binding_requires_and_preserves_explicit_relation
             ),
         )
     )
+    evidence_references = [
+        EvidenceReference(event_id=item.event_id)
+        for item in (failure, success, host_event)
+    ]
+    if include_relationship_observation_reference:
+        evidence_references.insert(
+            2,
+            EvidenceReference(observation_id=observation.observation_id),
+        )
     evidence_set = EvidenceSet(
         evidence_set_id=new_id(),
-        evidence=tuple(
-            EvidenceReference(event_id=item.event_id)
-            for item in (failure, success, host_event)
-        ),
+        evidence=tuple(evidence_references),
         created_at=host_time + timedelta(minutes=1),
     )
     constructor = PropositionConstructor(
@@ -460,6 +467,16 @@ def test_relationship_parameter_binding_requires_and_preserves_explicit_relation
         semantics_registry,
         construction_registry,
     )
+
+    if not include_relationship_observation_reference:
+        with pytest.raises(
+            PropositionConstructionError,
+            match="expected exactly one relationship of type account_uses_device; found 0",
+        ):
+            constructor.construct(
+                evidence_set, "account_authentication_sequence", 1
+            )
+        return
 
     if duplicate_relationship:
         with pytest.raises(
@@ -478,6 +495,27 @@ def test_relationship_parameter_binding_requires_and_preserves_explicit_relation
     assert {
         item.role_name: item.value_id for item in proposition.roles
     }["device"] == device.entity_id
+
+    event_only_manifest = tuple(
+        item for item in proposition.evidence_manifest.evidence
+        if item.observation_id is None
+    )
+    forged = replace(
+        proposition,
+        evidence_manifest=replace(
+            proposition.evidence_manifest,
+            evidence=event_only_manifest,
+        ),
+    )
+    with pytest.raises(
+        PropositionProvenanceError,
+        match="relationship provenance does not match its registered binding",
+    ):
+        PropositionProvenanceValidator(
+            repository,
+            semantics_registry,
+            construction_registry,
+        ).validate(forged)
     assert proposition.parameters_json == (
         '{"account_device_relationship_id":"' + relationship.relationship_id + '"}'
     )
