@@ -1599,7 +1599,7 @@ def test_validator_rejects_field_provenance_outside_evidence_manifest(tmp_path):
 
     with pytest.raises(
         PropositionProvenanceError,
-        match="field provenance event is outside the evidence manifest",
+        match="expected exactly one|field provenance event is outside the evidence manifest",
     ):
         PropositionProvenanceValidator(
             repository,
@@ -1674,7 +1674,7 @@ def test_validator_rejects_omitted_optional_event_role_when_manifest_has_match(t
         ),
     )
 
-    with pytest.raises(PropositionProvenanceError, match="event roles do not match"):
+    with pytest.raises(PropositionProvenanceError, match="event role presence or value does not match manifest selection"):
         PropositionProvenanceValidator(
             repository, constructor.semantics_registry, constructor.construction_registry
         ).validate(forged)
