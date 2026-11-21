@@ -101,7 +101,7 @@ class PropositionProvenanceValidator:
             event = events.get(event_id)
             if event is None:
                 event = self.repository.get_event(event_id)
-                if not isinstance(event, Event) or event.event_id != event_id:
+                if not type(event) is Event or event.event_id != event_id:
                     raise PropositionProvenanceError(
                         f"provenance references a missing or invalid event: {event_id}"
                     )
@@ -112,7 +112,7 @@ class PropositionProvenanceValidator:
             observation = observations.get(observation_id)
             if observation is None:
                 observation = self.repository.get_observation(observation_id)
-                if not isinstance(observation, Observation) or observation.observation_id != observation_id:
+                if not type(observation) is Observation or observation.observation_id != observation_id:
                     raise PropositionProvenanceError(
                         f"provenance references a missing or invalid observation: {observation_id}"
                     )
@@ -165,7 +165,7 @@ class PropositionProvenanceValidator:
                         offset=offset,
                     )
                     if not isinstance(batch, tuple) or not all(
-                        isinstance(item, Event) for item in batch
+                        type(item) is Event for item in batch
                     ):
                         raise PropositionProvenanceError(
                             "repository returned invalid events for a manifest observation"
@@ -331,7 +331,7 @@ class PropositionProvenanceValidator:
             entity_ids.add(role.value_id)
 
         entities = self.repository.get_entities_by_ids(tuple(sorted(entity_ids)))
-        if not isinstance(entities, tuple) or not all(isinstance(item, Entity) for item in entities):
+        if not isinstance(entities, tuple) or not all(type(item) is Entity for item in entities):
             raise PropositionProvenanceError("repository returned invalid entity records")
         entities_by_id = {item.entity_id: item for item in entities}
         for role_name in entity_bindings:
@@ -437,7 +437,7 @@ class PropositionProvenanceValidator:
                     observation_id=observation_id, limit=500, offset=offset
                 )
                 if not isinstance(batch, tuple) or not all(
-                    isinstance(item, Relationship) for item in batch
+                    type(item) is Relationship for item in batch
                 ):
                     raise PropositionProvenanceError(
                         "repository returned invalid relationship records"
@@ -505,7 +505,7 @@ class PropositionProvenanceValidator:
                             observation_id=observation_id, limit=500, offset=offset
                         )
                         if not isinstance(batch, tuple) or not all(
-                            isinstance(item, Relationship) for item in batch
+                            type(item) is Relationship for item in batch
                         ):
                             raise PropositionProvenanceError(
                                 "repository returned invalid relationship records"
@@ -532,7 +532,7 @@ class PropositionProvenanceValidator:
                         observation_id=observation_id, limit=500, offset=offset
                     )
                     if not isinstance(batch, tuple) or not all(
-                        isinstance(item, Relationship) for item in batch
+                        type(item) is Relationship for item in batch
                     ):
                         raise PropositionProvenanceError(
                             "repository returned invalid relationship records"
