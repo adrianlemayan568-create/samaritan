@@ -9,7 +9,7 @@ from types import MappingProxyType
 from typing import Mapping
 
 from samaritan.analysis_contracts import EvidenceReference
-from samaritan.contracts import SCHEMA_VERSION, normalize_timestamp, validate_id, validate_json_object, validate_text
+from samaritan.contracts import SCHEMA_VERSION, normalize_timestamp, validate_id, validate_identifier, validate_json_object, validate_text
 from samaritan.proposition_contracts import Proposition, StructuredHypothesis
 
 
@@ -84,8 +84,9 @@ class CriterionDefinition:
     schema_version: int = SCHEMA_VERSION
 
     def __post_init__(self) -> None:
-        for name in ("criterion_id", "criterion_type", "description", "independence_group"):
-            object.__setattr__(self, name, validate_text(getattr(self, name), name))
+        for name in ("criterion_id", "criterion_type", "independence_group"):
+            object.__setattr__(self, name, validate_identifier(getattr(self, name), name))
+        object.__setattr__(self, "description", validate_text(self.description, "description"))
         object.__setattr__(self, "parameters_json", _json_object(self.parameters_json, "parameters_json"))
         if not isinstance(self.parameter_definitions, tuple) or not all(
             type(item) is CriterionParameterDefinition for item in self.parameter_definitions
@@ -140,8 +141,9 @@ class CriterionOutcomeDefinition:
     schema_version: int = SCHEMA_VERSION
 
     def __post_init__(self) -> None:
-        for name in ("criterion_type", "outcome_code", "meaning"):
-            object.__setattr__(self, name, validate_text(getattr(self, name), name))
+        for name in ("criterion_type", "outcome_code"):
+            object.__setattr__(self, name, validate_identifier(getattr(self, name), name))
+        object.__setattr__(self, "meaning", validate_text(self.meaning, "meaning"))
         if type(self.vocabulary_version) is not int or self.vocabulary_version < 1:
             raise ValueError("vocabulary_version must be a positive integer")
         _schema(self.schema_version, "criterion outcome definition")
@@ -168,8 +170,9 @@ class CriterionEvaluatorDefinition:
     schema_version: int = SCHEMA_VERSION
 
     def __post_init__(self) -> None:
-        for name in ("criterion_type", "evaluator_type", "description"):
-            object.__setattr__(self, name, validate_text(getattr(self, name), name))
+        for name in ("criterion_type", "evaluator_type"):
+            object.__setattr__(self, name, validate_identifier(getattr(self, name), name))
+        object.__setattr__(self, "description", validate_text(self.description, "description"))
         if type(self.evaluator_version) is not int or self.evaluator_version < 1:
             raise ValueError("evaluator_version must be a positive integer")
         if self.evaluator_type not in SUPPORTED_EVALUATOR_TYPES:
@@ -236,7 +239,7 @@ class CriterionEvaluatorRegistry:
     def get(self, criterion_type: str, evaluator_version: int) -> CriterionEvaluatorDefinition:
         if type(evaluator_version) is not int or evaluator_version < 1:
             raise ValueError("evaluator_version must be a positive integer")
-        key = (validate_text(criterion_type, "criterion_type"), evaluator_version)
+        key = (validate_identifier(criterion_type, "criterion_type"), evaluator_version)
         try:
             return self._definitions[key]
         except KeyError as exc:
@@ -296,7 +299,7 @@ class CriterionOutcomeRegistry:
     def get(self, criterion_type: str, vocabulary_version: int, outcome_code: str) -> CriterionOutcomeDefinition:
         if type(vocabulary_version) is not int or vocabulary_version < 1:
             raise ValueError("vocabulary_version must be a positive integer")
-        key = (validate_text(criterion_type, "criterion_type"), vocabulary_version, validate_text(outcome_code, "outcome_code"))
+        key = (validate_text(criterion_type, "criterion_type"), vocabulary_version, validate_identifier(outcome_code, "outcome_code"))
         try:
             return self._definitions[key]
         except KeyError as exc:
@@ -418,7 +421,9 @@ class BearingDefinition:
     schema_version: int = SCHEMA_VERSION
 
     def __post_init__(self) -> None:
-        for name in ("criterion_id", "outcome_code", "alternative_id", "rationale", "basis", "author", "review_status"):
+        for name in ("criterion_id", "outcome_code"):
+            object.__setattr__(self, name, validate_identifier(getattr(self, name), name))
+        for name in ("alternative_id", "rationale", "basis", "author", "review_status"):
             object.__setattr__(self, name, validate_text(getattr(self, name), name))
         for name in ("focal_judgment", "alternative_judgment"):
             object.__setattr__(self, name, validate_text(getattr(self, name), name))
@@ -451,7 +456,9 @@ class HypothesisEvaluationRule:
     schema_version: int = SCHEMA_VERSION
 
     def __post_init__(self) -> None:
-        for name in ("evaluation_rule_id", "proposition_type", "description", "review_status"):
+        for name in ("evaluation_rule_id", "proposition_type"):
+            object.__setattr__(self, name, validate_identifier(getattr(self, name), name))
+        for name in ("description", "review_status"):
             object.__setattr__(self, name, validate_text(getattr(self, name), name))
         if type(self.rule_version) is not int or self.rule_version < 1:
             raise ValueError("rule_version must be a positive integer")
@@ -585,7 +592,7 @@ class HypothesisEvaluationRuleRegistry:
     def get(self, evaluation_rule_id: str, rule_version: int) -> HypothesisEvaluationRule:
         if type(rule_version) is not int or rule_version < 1:
             raise ValueError("rule_version must be a positive integer")
-        key = (validate_text(evaluation_rule_id, "evaluation_rule_id"), rule_version)
+        key = (validate_identifier(evaluation_rule_id, "evaluation_rule_id"), rule_version)
         try:
             return self._definitions[key]
         except KeyError as exc:
@@ -726,7 +733,7 @@ class HypothesisEvaluationRecord:
         object.__setattr__(
             self,
             "evaluation_rule_id",
-            validate_text(self.evaluation_rule_id, "evaluation_rule_id"),
+            validate_identifier(self.evaluation_rule_id, "evaluation_rule_id"),
         )
         if type(self.evaluation_rule_version) is not int or self.evaluation_rule_version < 1:
             raise ValueError("evaluation_rule_version must be a positive integer")
