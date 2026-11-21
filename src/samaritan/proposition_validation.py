@@ -21,7 +21,11 @@ class PropositionProvenanceError(ValueError):
 
 
 class PropositionProvenanceValidator:
-    """Verify a proposition against its exact registered construction and source records."""
+    """Check semantic and source provenance claims against registered definitions.
+
+    The validator also recomputes manifest-level role and relationship selection.
+    The manifest is not yet authenticated by persistent EvidenceSet storage.
+    """
 
     def __init__(
         self,
@@ -367,7 +371,11 @@ class PropositionProvenanceValidator:
                 raise PropositionProvenanceError(
                     f"parameter value does not match its registered event attribute: {binding.parameter_name}"
                 )
-            source = provenance[binding.parameter_name]
+            source = provenance.get(binding.parameter_name)
+            if source is None:
+                raise PropositionProvenanceError(
+                    f"event attribute parameter has no provenance: {binding.parameter_name}"
+                )
             if (
                 source.event_ids != (event.event_id,)
                 or source.observation_ids != (event.observation_id,)
@@ -386,7 +394,11 @@ class PropositionProvenanceValidator:
             earlier = load_event(earlier_role.value_id)
             later = load_event(later_role.value_id)
             seconds = (later.occurred_at - earlier.occurred_at).total_seconds()
-            source = provenance[binding.parameter_name]
+            source = provenance.get(binding.parameter_name)
+            if source is None:
+                raise PropositionProvenanceError(
+                    f"temporal parameter has no provenance: {binding.parameter_name}"
+                )
             expected_observations = tuple(dict.fromkeys(
                 (earlier.observation_id, later.observation_id)
             ))
