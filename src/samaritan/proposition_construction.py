@@ -67,7 +67,7 @@ class PropositionConstructor:
         construction_version: int,
     ) -> Proposition:
         """Construct one proposition from the exact supplied evidence selection."""
-        if not isinstance(evidence_set, EvidenceSet):
+        if type(evidence_set) is not EvidenceSet:
             raise TypeError("evidence_set must be an EvidenceSet")
         construction = self.construction_registry.get(construction_id, construction_version)
         semantics = self.semantics_registry.get(
