@@ -217,7 +217,11 @@ def resolve_parameter_values(
 
     for binding in construction.event_attribute_bindings:
         event = events_by_role.get(binding.event_role)
-        definition = parameter_definitions[binding.parameter_name]
+        definition = parameter_definitions.get(binding.parameter_name)
+        if definition is None:
+            raise EvidenceSelectionError(
+                f"construction binds an undeclared semantic parameter: {binding.parameter_name}"
+            )
         if event is None:
             if definition.required:
                 raise EvidenceSelectionError(
@@ -251,7 +255,11 @@ def resolve_parameter_values(
     for binding in construction.temporal_parameter_bindings:
         earlier = events_by_role.get(binding.earlier_event_role)
         later = events_by_role.get(binding.later_event_role)
-        definition = parameter_definitions[binding.parameter_name]
+        definition = parameter_definitions.get(binding.parameter_name)
+        if definition is None:
+            raise EvidenceSelectionError(
+                f"construction binds an undeclared semantic parameter: {binding.parameter_name}"
+            )
         if earlier is None or later is None:
             if definition.required:
                 raise EvidenceSelectionError(
@@ -277,7 +285,11 @@ def resolve_parameter_values(
     for binding in construction.relationship_parameter_bindings:
         source_id = entities_by_role.get(binding.source_entity_role)
         target_id = entities_by_role.get(binding.target_entity_role)
-        definition = parameter_definitions[binding.parameter_name]
+        definition = parameter_definitions.get(binding.parameter_name)
+        if definition is None:
+            raise EvidenceSelectionError(
+                f"construction binds an undeclared semantic parameter: {binding.parameter_name}"
+            )
         if source_id is None or target_id is None:
             if definition.required:
                 raise EvidenceSelectionError(
