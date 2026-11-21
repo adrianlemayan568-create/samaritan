@@ -111,10 +111,14 @@ class TemporalConstraintDefinition:
 
     def __post_init__(self) -> None:
         object.__setattr__(
-            self, "earlier_role", validate_text(self.earlier_role, "earlier_role")
+            self, "earlier_role", _validate_nfc_identifier(
+                validate_text(self.earlier_role, "earlier_role"), "earlier_role"
+            )
         )
         object.__setattr__(
-            self, "later_role", validate_text(self.later_role, "later_role")
+            self, "later_role", _validate_nfc_identifier(
+                validate_text(self.later_role, "later_role"), "later_role"
+            )
         )
         object.__setattr__(
             self, "relation", validate_text(self.relation, "relation")
@@ -148,10 +152,14 @@ class TemporalScopeDefinition:
 
     def __post_init__(self) -> None:
         object.__setattr__(
-            self, "start_role", validate_text(self.start_role, "start_role")
+            self, "start_role", _validate_nfc_identifier(
+                validate_text(self.start_role, "start_role"), "start_role"
+            )
         )
         object.__setattr__(
-            self, "end_role", validate_text(self.end_role, "end_role")
+            self, "end_role", _validate_nfc_identifier(
+                validate_text(self.end_role, "end_role"), "end_role"
+            )
         )
 
         if self.start_role == self.end_role:
