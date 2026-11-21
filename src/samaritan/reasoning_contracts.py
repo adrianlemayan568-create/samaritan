@@ -192,6 +192,7 @@ class CriterionEvaluatorDefinition:
             "event_type_count": {
                 "event_type": {"string"},
                 "minimum_count": {"integer"},
+                "entity_role": {"string"},
             },
             "participant_role_matches_proposition_role": {
                 "event_role": {"string"},
