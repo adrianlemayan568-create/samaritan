@@ -15,6 +15,13 @@ from samaritan.reasoning_contracts import (
     HypothesisSpecification,
 )
 from samaritan.repository import Repository
+from samaritan.proposition_contracts import (
+    CURRENT_PROPOSITION_IDENTITY_ALGORITHM,
+)
+from samaritan.proposition_semantics import (
+    PropositionSemanticsRegistry,
+    build_default_proposition_semantics_registry,
+)
 
 
 class HypothesisEvaluationEngine:
@@ -25,12 +32,18 @@ class HypothesisEvaluationEngine:
         repository: Repository,
         evaluator_registry: CriterionEvaluatorRegistry,
         outcome_registry: CriterionOutcomeRegistry,
+        semantics_registry: PropositionSemanticsRegistry | None = None,
     ) -> None:
         self.criterion_engine = CriterionEvaluationEngine(
             repository,
             evaluator_registry,
             outcome_registry,
         )
+        if semantics_registry is None:
+            semantics_registry = build_default_proposition_semantics_registry()
+        if not isinstance(semantics_registry, PropositionSemanticsRegistry):
+            raise TypeError("semantics_registry must be a PropositionSemanticsRegistry")
+        self.semantics_registry = semantics_registry
         self.outcome_registry = outcome_registry
         self.synthesizer = DiagnosticitySynthesizer()
 
@@ -46,6 +59,23 @@ class HypothesisEvaluationEngine:
             raise TypeError("specification must be a HypothesisSpecification")
         if not isinstance(evidence_set, EvidenceSet):
             raise TypeError("evidence_set must be an EvidenceSet")
+
+        # A fingerprint supplied by a Proposition is only a claim until
+        # checked against the authoritative semantics registry. Evaluation
+        # accepts only the current fingerprint-bound identity algorithm.
+        propositions = (
+            specification.hypothesis.proposition,
+            *(item.proposition for item in specification.alternatives),
+        )
+        for proposition in propositions:
+            if proposition.identity_algorithm_version != CURRENT_PROPOSITION_IDENTITY_ALGORITHM:
+                raise ValueError(
+                    "hypothesis evaluation requires the current fingerprint-bound proposition identity"
+                )
+            semantics = self.semantics_registry.get(
+                proposition.proposition_type, proposition.semantics_version
+            )
+            proposition.validate_against(semantics)
 
         rule = specification.evaluation_rule
         rule.validate_for(
