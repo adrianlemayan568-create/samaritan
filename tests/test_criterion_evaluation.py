@@ -14,6 +14,7 @@ from samaritan.database import Database
 from samaritan.evaluation_contracts import EvidenceSet
 from samaritan.proposition_contracts import (
     Proposition,
+    PropositionEvidenceManifest,
     PropositionFieldProvenance,
     PropositionRoleValue,
     PropositionTemporalScope,
@@ -69,6 +70,7 @@ def make_evaluation_context(tmp_path):
         participants=(),
     )
     repository.persist_observation(observation, events=(event,))
+    evidence_set_id = new_id()
     proposition = Proposition(
         proposition_id=new_id(),
         proposition_type="test_authentication",
@@ -90,9 +92,13 @@ def make_evaluation_context(tmp_path):
         construction_version=1,
         semantics_fingerprint=_TEST_SEMANTICS_FINGERPRINT,
         identity_algorithm_version=LEGACY_PROPOSITION_IDENTITY_ALGORITHM,
+        evidence_manifest=PropositionEvidenceManifest(
+            evidence_set_id=evidence_set_id,
+            evidence=(EvidenceReference(event_id=event.event_id),),
+        ),
     )
     evidence_set = EvidenceSet(
-        evidence_set_id=new_id(),
+        evidence_set_id=evidence_set_id,
         evidence=(EvidenceReference(event_id=event.event_id),),
         created_at=now,
     )
@@ -227,6 +233,10 @@ def test_hypothesis_evaluation_engine_runs_findings_and_synthesis_end_to_end(tmp
         construction_version=proposition.construction_version,
         semantics_fingerprint=proposition.semantics_fingerprint,
         identity_algorithm_version=proposition.identity_algorithm_version,
+        evidence_manifest=PropositionEvidenceManifest(
+            evidence_set_id=evidence_set.evidence_set_id,
+            evidence=(EvidenceReference(event_id=alternative_event_id),),
+        ),
     )
     alternative = HypothesisAlternative(
         alternative_id=new_id(),
