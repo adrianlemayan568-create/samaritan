@@ -12,6 +12,7 @@ from samaritan.repository import Repository
 from samaritan.proposition_evidence_selection import (
     EvidenceSelectionError,
     resolve_event_roles,
+    resolve_entity_roles,
     resolve_relationship,
 )
 
@@ -190,6 +191,15 @@ class PropositionProvenanceValidator:
         except (TypeError, ValueError) as exc:
             raise PropositionProvenanceError(str(exc)) from exc
         expected_event_roles = dict(expected_event_selection.event_roles)
+        try:
+            resolved_entities = resolve_entity_roles(
+                semantics, construction, expected_event_selection
+            )
+        except (TypeError, ValueError) as exc:
+            raise PropositionProvenanceError(str(exc)) from exc
+        expected_entity_roles = {
+            item.role_name: item for item in resolved_entities
+        }
         actual_event_roles = {
             name: role for name, role in roles.items() if role.role_kind == "event"
         }
@@ -277,49 +287,18 @@ class PropositionProvenanceValidator:
                     "fallback temporal scope does not match source-verified required event roles"
                 )
 
-        # Recompute entity-role presence from the resolved participant
-        # bindings, including optional entity roles. A forged proposition may
-        # not omit a role that construction would populate.
-        for role_name, binding in entity_bindings.items():
-            definition = semantic_roles[role_name]
-            resolved_ids: list[str] = []
-            dependencies_present = True
-            for participant_binding in binding.participant_bindings:
-                event = expected_event_roles.get(participant_binding.event_role)
-                if event is None:
-                    dependencies_present = False
-                    break
-                participant_ids = [
-                    participant.entity_id
-                    for participant in event.participants
-                    if participant.role == participant_binding.participant_role
-                ]
-                if len(participant_ids) != 1:
-                    raise PropositionProvenanceError(
-                        f"expected exactly one participant with role "
-                        f"{participant_binding.participant_role!r} in "
-                        f"{participant_binding.event_role}; found {len(participant_ids)}"
-                    )
-                resolved_ids.append(participant_ids[0])
-            expected_entity_id = None
-            if dependencies_present:
-                if len(set(resolved_ids)) != 1:
-                    raise PropositionProvenanceError(
-                        f"entity role {role_name} resolves to different entities across source events"
-                    )
-                expected_entity_id = resolved_ids[0]
-            elif definition.required:
-                raise PropositionProvenanceError(
-                    f"required entity role {role_name} depends on an absent optional event role"
-                )
-            actual_entity_role = roles.get(role_name)
+        # Require the proposition's entity-role set to match the shared
+        # manifest-derived participant selection, including optional roles.
+        for role_name in entity_bindings:
+            expected_entity = expected_entity_roles.get(role_name)
+            actual_entity = roles.get(role_name)
             if (
-                (expected_entity_id is None and actual_entity_role is not None)
+                (expected_entity is None and actual_entity is not None)
                 or (
-                    expected_entity_id is not None
+                    expected_entity is not None
                     and (
-                        actual_entity_role is None
-                        or actual_entity_role.value_id != expected_entity_id
+                        actual_entity is None
+                        or actual_entity.value_id != expected_entity.entity_id
                     )
                 )
             ):
@@ -328,44 +307,24 @@ class PropositionProvenanceValidator:
                 )
 
         entity_ids: set[str] = set()
-        for role_name, binding in entity_bindings.items():
+        for role_name in entity_bindings:
             role = roles.get(role_name)
             if role is None:
                 continue
-            expected_event_ids: list[str] = []
-            expected_observation_ids: list[str] = []
-            for participant_binding in binding.participant_bindings:
-                event_role = roles.get(participant_binding.event_role)
-                if event_role is None:
-                    raise PropositionProvenanceError(
-                        f"populated entity role depends on an absent event role: {participant_binding.event_role}"
-                    )
-                event = load_event(event_role.value_id)
-                matches = [
-                    participant.entity_id
-                    for participant in event.participants
-                    if participant.role == participant_binding.participant_role
-                ]
-                if len(matches) != 1 or matches[0] != role.value_id:
-                    raise PropositionProvenanceError(
-                        f"entity role does not match its declared source participant: {role_name}"
-                    )
-                expected_event_ids.append(event.event_id)
-                expected_observation_ids.append(event.observation_id)
-            expected_events = tuple(dict.fromkeys(expected_event_ids))
-            expected_observations = tuple(dict.fromkeys(expected_observation_ids))
+            expected_entity = expected_entity_roles[role_name]
             source = provenance.get(role_name)
             if source is None:
                 raise PropositionProvenanceError(
                     f"populated entity role has no provenance: {role_name}"
                 )
             if (
-                source.event_ids != expected_events
-                or source.observation_ids != expected_observations
+                role.value_id != expected_entity.entity_id
+                or source.event_ids != expected_entity.event_ids
+                or source.observation_ids != expected_entity.observation_ids
                 or source.relationship_ids
             ):
                 raise PropositionProvenanceError(
-                    f"entity role provenance does not match its construction bindings: {role_name}"
+                    f"entity role value or provenance does not match shared selection: {role_name}"
                 )
             entity_ids.add(role.value_id)
 
