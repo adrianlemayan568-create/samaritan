@@ -90,7 +90,7 @@ def canonical_proposition_semantics_payload(
     bindings are not part of PropositionSemantics and must remain independent
     from the meaning represented by this fingerprint.
     """
-    if not isinstance(semantics, PropositionSemantics):
+    if type(semantics) is not PropositionSemantics:
         raise TypeError("semantics must be PropositionSemantics")
 
     roles = sorted(
