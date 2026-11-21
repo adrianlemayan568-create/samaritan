@@ -24,10 +24,11 @@ class PropositionProvenanceError(ValueError):
 
 
 class PropositionProvenanceValidator:
-    """Check semantic and source provenance claims against registered definitions.
+    """Validate semantic, source, and historical EvidenceSet provenance.
 
-    The validator also recomputes manifest-level role and relationship selection.
-    The manifest is not yet authenticated by persistent EvidenceSet storage.
+    Manifest references must exactly match the ordered selection persisted under
+    the same EvidenceSet ID. This authenticity check relies on the trusted
+    repository/database boundary; it is not a cryptographic tamper-proof log.
     """
 
     def __init__(
