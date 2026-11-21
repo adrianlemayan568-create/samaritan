@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from samaritan.analysis_contracts import EvidenceReference
-from samaritan.contracts import SCHEMA_VERSION, normalize_timestamp, validate_id, validate_json_object, validate_text
+from samaritan.contracts import SCHEMA_VERSION, normalize_timestamp, validate_id, validate_identifier, validate_json_object, validate_text
 from samaritan.proposition_semantics import PropositionSemantics
 from samaritan.proposition_semantics_fingerprint import proposition_semantics_fingerprint
 
@@ -144,7 +144,7 @@ class Proposition:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "proposition_id", validate_id(self.proposition_id, "proposition_id"))
-        object.__setattr__(self, "proposition_type", validate_text(self.proposition_type, "proposition_type"))
+        object.__setattr__(self, "proposition_type", validate_identifier(self.proposition_type, "proposition_type"))
         if type(self.semantics_version) is not int or self.semantics_version < 1:
             raise ValueError("semantics_version must be a positive integer")
         if not isinstance(self.roles, tuple) or not self.roles:
@@ -183,7 +183,7 @@ class Proposition:
                 raise ValueError(
                     f"entity role provenance must identify its supporting events: {role.role_name}"
                 )
-        object.__setattr__(self, "construction_id", validate_text(self.construction_id, "construction_id"))
+        object.__setattr__(self, "construction_id", validate_identifier(self.construction_id, "construction_id"))
         if type(self.construction_version) is not int or self.construction_version < 1:
             raise ValueError("construction_version must be a positive integer")
         object.__setattr__(
@@ -344,7 +344,7 @@ def deterministic_proposition_id(
     if algorithm not in SUPPORTED_PROPOSITION_IDENTITY_ALGORITHMS:
         raise ValueError("unsupported proposition identity algorithm version")
     canonical = {
-        "type": validate_text(proposition_type, "proposition_type"),
+        "type": validate_identifier(proposition_type, "proposition_type"),
         "semantics_version": semantics_version,
         "roles": [
             {
