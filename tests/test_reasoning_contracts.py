@@ -8,6 +8,7 @@ from samaritan.analysis_contracts import EvidenceReference
 from samaritan.diagnosticity import DiagnosticitySynthesizer
 from samaritan.proposition_contracts import (
     Proposition,
+    PropositionEvidenceManifest,
     PropositionFieldProvenance,
     PropositionRoleValue,
     PropositionTemporalScope,
@@ -72,6 +73,10 @@ def make_proposition(account_id=None):
         construction_version=1,
         semantics_fingerprint=semantics_fingerprint,
         identity_algorithm_version=identity_algorithm_version,
+        evidence_manifest=PropositionEvidenceManifest(
+            evidence_set_id=str(uuid4()),
+            evidence=tuple(EvidenceReference(event_id=event_id) for event_id in event_ids),
+        ),
     )
 
 
