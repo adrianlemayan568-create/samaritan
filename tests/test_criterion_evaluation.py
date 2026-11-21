@@ -6,6 +6,7 @@ from samaritan.hypothesis_evaluation import HypothesisEvaluationEngine
 from samaritan.contracts import (
     Event,
     Entity,
+    EventParticipant,
     Observation,
     Source,
     new_id,
@@ -516,3 +517,160 @@ def test_temporal_gap_reports_ordering_violation_separately(tmp_path):
 
     assert finding.status == "not_matched"
     assert finding.outcome_code == "ordering_violation"
+
+
+def test_event_type_count_is_scoped_to_entity_and_proposition_temporal_window(tmp_path):
+    repository, base_proposition, _, success_event, _ = make_evaluation_context(tmp_path)
+    now = success_event.occurred_at
+    source = Source(
+        source_id=new_id(),
+        source_type="synthetic",
+        name="entity-scoped event count test",
+        created_at=now,
+    )
+    repository.register_source(source)
+    alice = Entity(
+        entity_id=new_id(), entity_type="user_account",
+        canonical_identifier="alice-count-scope", created_at=now,
+    )
+    bob = Entity(
+        entity_id=new_id(), entity_type="user_account",
+        canonical_identifier="bob-count-scope", created_at=now,
+    )
+
+    selected_events = []
+    for entity, offset in (
+        (alice, 0),
+        (alice, 0),
+        (bob, 0),
+        (alice, 30),
+    ):
+        occurred_at = now + timedelta(seconds=offset)
+        observation = Observation(
+            observation_id=new_id(),
+            source_id=source.source_id,
+            received_at=occurred_at,
+            raw_payload="{}",
+            payload_sha256=payload_checksum("{}"),
+        )
+        event = Event(
+            event_id=new_id(),
+            observation_id=observation.observation_id,
+            event_type="authentication_failure",
+            occurred_at=occurred_at,
+            original_timestamp=occurred_at.isoformat().replace("+00:00", "Z"),
+            normalized_data_json="{}",
+            participants=(EventParticipant(entity.entity_id, "target"),),
+        )
+        repository.persist_observation(
+            observation,
+            entities=(entity,) if repository.get_entities_by_ids((entity.entity_id,)) == () else (),
+            events=(event,),
+        )
+        selected_events.append(event)
+
+    semantics = PropositionSemantics(
+        proposition_type="entity_scoped_authentication",
+        semantics_version=1,
+        roles=(
+            PropositionRoleDefinition(
+                role_name="account",
+                role_kind="entity",
+                cardinality="one",
+                entity_type="user_account",
+                meaning="The account whose activity is being evaluated.",
+            ),
+            PropositionRoleDefinition(
+                role_name="success_event",
+                role_kind="event",
+                cardinality="one",
+                event_type="authentication_success",
+                meaning="The proposition's successful authentication event.",
+            ),
+        ),
+    )
+    semantics_registry = PropositionSemanticsRegistry()
+    semantics_registry.register(semantics)
+    fingerprint = proposition_semantics_fingerprint(semantics)
+    roles = (
+        PropositionRoleValue("account", "entity", alice.entity_id),
+        PropositionRoleValue(
+            "success_event", "event", success_event.event_id, success_event.occurred_at
+        ),
+    )
+    scope = PropositionTemporalScope(now, now)
+    provenance = (
+        PropositionFieldProvenance(
+            "account", (success_event.event_id,), (success_event.observation_id,)
+        ),
+        PropositionFieldProvenance(
+            "success_event", (success_event.event_id,), (success_event.observation_id,)
+        ),
+    )
+    proposition = Proposition(
+        proposition_id=deterministic_proposition_id(
+            semantics.proposition_type,
+            semantics.semantics_version,
+            roles,
+            scope,
+            semantics_fingerprint=fingerprint,
+            identity_algorithm_version=CURRENT_PROPOSITION_IDENTITY_ALGORITHM,
+        ),
+        proposition_type=semantics.proposition_type,
+        semantics_version=semantics.semantics_version,
+        roles=roles,
+        temporal_scope=scope,
+        field_provenance=provenance,
+        construction_id="entity-scoped-test",
+        construction_version=1,
+        semantics_fingerprint=fingerprint,
+        identity_algorithm_version=CURRENT_PROPOSITION_IDENTITY_ALGORITHM,
+        evidence_manifest=PropositionEvidenceManifest(
+            evidence_set_id=new_id(),
+            evidence=(
+                EvidenceReference(event_id=success_event.event_id),
+                *(EvidenceReference(event_id=item.event_id) for item in selected_events),
+            ),
+        ),
+    )
+    evidence_set = EvidenceSet(
+        evidence_set_id=proposition.evidence_manifest.evidence_set_id,
+        evidence=proposition.evidence_manifest.evidence,
+        created_at=now + timedelta(minutes=1),
+    )
+    parameters = (
+        CriterionParameterDefinition("event_type", "string", required=True),
+        CriterionParameterDefinition("minimum_count", "integer", required=True),
+        CriterionParameterDefinition("entity_role", "string", required=True),
+    )
+    criterion = CriterionDefinition(
+        criterion_id="alice-authentication-failure-count",
+        criterion_type="account_failure_count",
+        parameters_json='{"event_type":"authentication_failure","minimum_count":2,"entity_role":"account"}',
+        description="Count failures for the focal account within the proposition time scope.",
+        independence_group="account-event-source",
+        parameter_definitions=parameters,
+    )
+    evaluators = CriterionEvaluatorRegistry()
+    evaluators.register(CriterionEvaluatorDefinition(
+        criterion_type=criterion.criterion_type,
+        evaluator_version=1,
+        evaluator_type="event_type_count",
+        parameter_definitions=parameters,
+        description="Count matching event types for one proposition entity within its temporal scope.",
+    ))
+    outcomes = CriterionOutcomeRegistry()
+    for code in ("threshold_met", "threshold_not_met"):
+        outcomes.register(CriterionOutcomeDefinition(
+            criterion_type=criterion.criterion_type,
+            outcome_code=code,
+            meaning=f"Event-count outcome {code}.",
+        ))
+
+    finding = CriterionEvaluationEngine(repository, evaluators, outcomes).evaluate(
+        criterion, proposition, evidence_set
+    )
+
+    assert finding.status == "matched"
+    assert finding.outcome_code == "threshold_met"
+    assert "Observed 2 events" in finding.rationale
