@@ -41,12 +41,14 @@ class CriterionEvaluationEngine:
             raise TypeError("evaluator_registry must be a CriterionEvaluatorRegistry")
         if not isinstance(outcome_registry, CriterionOutcomeRegistry):
             raise TypeError("outcome_registry must be a CriterionOutcomeRegistry")
+        evaluator_registry.freeze()
+        outcome_registry.freeze()
         self.repository = repository
         self.evaluator_registry = evaluator_registry
         self.outcome_registry = outcome_registry
         if clock is not None and not callable(clock):
             raise TypeError("clock must be callable")
-        self.clock = clock or (lambda: datetime.now(timezone.utc))
+        self.clock = clock if clock is not None else (lambda: datetime.now(timezone.utc))
 
     def evaluate(
         self,
@@ -325,6 +327,17 @@ class CriterionEvaluationEngine:
                 ("Both declared event roles with timestamps",),
                 evidence,
             )
+        relevant = tuple(
+            item for item in evidence
+            if item.event_id in {earlier.value_id, later.value_id}
+        )
+        if len({item.event_id for item in relevant if item.event_id is not None}) < 2:
+            return self._insufficient(
+                criterion,
+                "The selected EvidenceSet does not contain both proposition events.",
+                ("Evidence for both temporal boundary events",),
+                evidence,
+            )
         gap = (later.occurred_at - earlier.occurred_at).total_seconds()
         if gap <= 0:
             return self._result(
@@ -338,17 +351,6 @@ class CriterionEvaluationEngine:
                 "The earlier event role must strictly precede the later event role.",
             )
         matched = gap <= parameters["maximum_seconds"]
-        relevant = tuple(
-            item for item in evidence
-            if item.event_id in {earlier.value_id, later.value_id}
-        )
-        if len(relevant) < 2:
-            return self._insufficient(
-                criterion,
-                "The selected EvidenceSet does not contain both proposition events.",
-                ("Evidence for both temporal boundary events",),
-                evidence,
-            )
         return self._result(
             criterion,
             "matched" if matched else "not_matched",
