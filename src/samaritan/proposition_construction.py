@@ -30,6 +30,7 @@ from samaritan.repository import Repository
 from samaritan.proposition_validation import PropositionProvenanceValidator
 from samaritan.proposition_evidence_selection import (
     resolve_event_roles,
+    resolve_entity_roles,
     resolve_relationship,
 )
 
@@ -164,50 +165,24 @@ class PropositionConstructor:
                 observation_ids=(event.observation_id,),
             )
 
-        participant_entity_ids: set[str] = set()
-        participant_matches: dict[str, list[str]] = {}
-        for entity_role, binding in entity_definitions.items():
-            resolved_ids: list[str] = []
-            missing_dependency = False
-            for participant_binding in binding.participant_bindings:
-                event = selected_events.get(participant_binding.event_role)
-                if event is None:
-                    missing_dependency = True
-                    break
-                matches = [
-                    participant.entity_id
-                    for participant in event.participants
-                    if participant.role == participant_binding.participant_role
-                ]
-                if len(matches) != 1:
-                    raise PropositionConstructionError(
-                        f"expected exactly one participant with role "
-                        f"{participant_binding.participant_role!r} in "
-                        f"{participant_binding.event_role}; found {len(matches)}"
-                    )
-                resolved_ids.append(matches[0])
-                participant_entity_ids.add(matches[0])
-            if missing_dependency:
-                if semantic_roles[entity_role].required:
-                    raise PropositionConstructionError(
-                        f"required entity role {entity_role} depends on an absent optional event role"
-                    )
-                continue
-            if len(set(resolved_ids)) != 1:
-                raise PropositionConstructionError(
-                    f"entity role {entity_role} resolves to different entities across source events"
-                )
-            participant_matches[entity_role] = resolved_ids
-
+        try:
+            resolved_entities = resolve_entity_roles(
+                semantics, construction, resolved_selection
+            )
+        except ValueError as exc:
+            raise PropositionConstructionError(str(exc)) from exc
+        participant_entity_ids = {item.entity_id for item in resolved_entities}
         entities = self.repository.get_entities_by_ids(tuple(sorted(participant_entity_ids)))
         if not isinstance(entities, tuple) or not all(isinstance(item, Entity) for item in entities):
             raise DatabaseIntegrityError("repository returned invalid entity records")
         entities_by_id = {item.entity_id: item for item in entities}
-        for entity_role, resolved_ids in participant_matches.items():
-            entity_id = resolved_ids[0]
-            entity = entities_by_id.get(entity_id)
+        for resolved_entity in resolved_entities:
+            entity_role = resolved_entity.role_name
+            entity = entities_by_id.get(resolved_entity.entity_id)
             if entity is None:
-                raise DatabaseIntegrityError(f"referenced entity does not exist: {entity_id}")
+                raise DatabaseIntegrityError(
+                    f"referenced entity does not exist: {resolved_entity.entity_id}"
+                )
             expected_type = semantic_roles[entity_role].entity_type
             if entity.entity_type != expected_type:
                 raise PropositionConstructionError(
@@ -218,14 +193,10 @@ class PropositionConstructor:
                 role_kind="entity",
                 value_id=entity.entity_id,
             )
-            source_events = [
-                selected_events[item.event_role]
-                for item in entity_definitions[entity_role].participant_bindings
-            ]
             provenance[entity_role] = PropositionFieldProvenance(
                 field_name=entity_role,
-                event_ids=tuple(dict.fromkeys(item.event_id for item in source_events)),
-                observation_ids=tuple(dict.fromkeys(item.observation_id for item in source_events)),
+                event_ids=resolved_entity.event_ids,
+                observation_ids=resolved_entity.observation_ids,
             )
 
         ordered_roles = tuple(role_values[name] for name in semantic_roles if name in role_values)
