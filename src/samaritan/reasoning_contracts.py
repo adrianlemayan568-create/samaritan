@@ -461,8 +461,14 @@ class HypothesisEvaluationRule:
     schema_version: int = SCHEMA_VERSION
 
     def __post_init__(self) -> None:
-        for name in ("evaluation_rule_id", "proposition_type"):
-            object.__setattr__(self, name, validate_identifier(getattr(self, name), name))
+        object.__setattr__(
+            self, "evaluation_rule_id",
+            validate_text(self.evaluation_rule_id, "evaluation_rule_id"),
+        )
+        object.__setattr__(
+            self, "proposition_type",
+            validate_identifier(self.proposition_type, "proposition_type"),
+        )
         for name in ("description", "review_status"):
             object.__setattr__(self, name, validate_text(getattr(self, name), name))
         if type(self.rule_version) is not int or self.rule_version < 1:
@@ -597,7 +603,7 @@ class HypothesisEvaluationRuleRegistry:
     def get(self, evaluation_rule_id: str, rule_version: int) -> HypothesisEvaluationRule:
         if type(rule_version) is not int or rule_version < 1:
             raise ValueError("rule_version must be a positive integer")
-        key = (validate_identifier(evaluation_rule_id, "evaluation_rule_id"), rule_version)
+        key = (validate_text(evaluation_rule_id, "evaluation_rule_id"), rule_version)
         try:
             return self._definitions[key]
         except KeyError as exc:
@@ -738,7 +744,7 @@ class HypothesisEvaluationRecord:
         object.__setattr__(
             self,
             "evaluation_rule_id",
-            validate_identifier(self.evaluation_rule_id, "evaluation_rule_id"),
+            validate_text(self.evaluation_rule_id, "evaluation_rule_id"),
         )
         if type(self.evaluation_rule_version) is not int or self.evaluation_rule_version < 1:
             raise ValueError("evaluation_rule_version must be a positive integer")
