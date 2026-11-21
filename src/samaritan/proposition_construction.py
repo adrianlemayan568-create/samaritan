@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 
 from samaritan.contracts import Entity, Event, Observation, Relationship
-from samaritan.database import DatabaseIntegrityError
+from samaritan.database import DatabaseError, DatabaseIntegrityError
 from samaritan.evaluation_contracts import EvidenceSet
 from samaritan.proposition_construction_contracts import (
     PropositionConstructionDefinition,
@@ -61,6 +62,34 @@ class PropositionConstructor:
         self.construction_registry = construction_registry
 
     def construct(
+        self,
+        evidence_set: EvidenceSet,
+        construction_id: str,
+        construction_version: int,
+    ) -> Proposition:
+        """Construct a proposition and normalize expected source-boundary failures."""
+        if type(evidence_set) is not EvidenceSet:
+            raise TypeError("evidence_set must be an EvidenceSet")
+        try:
+            return self._construct(
+                evidence_set, construction_id, construction_version
+            )
+        except PropositionConstructionError:
+            raise
+        except (
+            DatabaseError,
+            sqlite3.Error,
+            KeyError,
+            TypeError,
+            AttributeError,
+            UnicodeError,
+            ValueError,
+        ) as exc:
+            raise PropositionConstructionError(
+                f"proposition construction failed: {exc}"
+            ) from exc
+
+    def _construct(
         self,
         evidence_set: EvidenceSet,
         construction_id: str,
