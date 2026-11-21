@@ -961,3 +961,62 @@ def test_evidence_set_rejects_missing_source_reference_without_partial_record(
         repository.persist_evidence_set(evidence_set)
 
     assert repository.get_evidence_set(evidence_set.evidence_set_id) is None
+
+
+def test_persisted_evidence_set_items_and_identity_are_database_immutable(tmp_path):
+    repository, database, source = make_repository(tmp_path)
+    observation = make_observation(source)
+    event = make_event(observation)
+    repository.persist_observation(observation, events=(event,))
+    evidence_set = EvidenceSet(
+        evidence_set_id=new_id(),
+        evidence=(EvidenceReference(event_id=event.event_id),),
+        created_at=NOW,
+    )
+    repository.persist_evidence_set(evidence_set)
+
+    with pytest.raises(sqlite3.IntegrityError, match="immutable"):
+        with database.connection() as connection:
+            connection.execute(
+                "UPDATE evidence_sets SET created_at = ? WHERE evidence_set_id = ?",
+                ("2026-11-17T10:00:00+00:00", evidence_set.evidence_set_id),
+            )
+
+    with pytest.raises(sqlite3.IntegrityError, match="immutable"):
+        with database.connection() as connection:
+            connection.execute(
+                "DELETE FROM evidence_sets WHERE evidence_set_id = ?",
+                (evidence_set.evidence_set_id,),
+            )
+
+    with pytest.raises(sqlite3.IntegrityError, match="immutable"):
+        with database.connection() as connection:
+            connection.execute(
+                """
+                UPDATE evidence_set_items
+                SET item_index = 2
+                WHERE evidence_set_id = ?
+                """,
+                (evidence_set.evidence_set_id,),
+            )
+
+    with pytest.raises(sqlite3.IntegrityError, match="immutable"):
+        with database.connection() as connection:
+            connection.execute(
+                "DELETE FROM evidence_set_items WHERE evidence_set_id = ?",
+                (evidence_set.evidence_set_id,),
+            )
+
+    with pytest.raises(sqlite3.IntegrityError, match="sealed"):
+        with database.connection() as connection:
+            connection.execute(
+                """
+                INSERT INTO evidence_set_items (
+                    evidence_set_id, item_index, observation_id, event_id
+                )
+                VALUES (?, ?, NULL, ?)
+                """,
+                (evidence_set.evidence_set_id, 1, event.event_id),
+            )
+
+    assert repository.get_evidence_set(evidence_set.evidence_set_id) == evidence_set
