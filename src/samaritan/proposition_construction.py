@@ -134,7 +134,7 @@ class PropositionConstructor:
                     f"required semantic parameter has no registered binding: {parameter.parameter_name}"
                 )
 
-        events, observations, selected_observations = self._resolve_evidence(evidence_set.evidence)
+        events, selected_observations = self._resolve_evidence(evidence_set.evidence)
         selected_events: dict[str, Event] = {}
         for role_name, binding in event_definitions.items():
             matches = [event for event in events.values() if event.event_type == binding.event_type]
@@ -450,11 +450,7 @@ class PropositionConstructor:
     def _resolve_evidence(
         self,
         references: tuple[EvidenceReference, ...],
-    ) -> tuple[
-        dict[str, Event],
-        dict[str, Observation],
-        dict[str, Observation],
-    ]:
+    ) -> tuple[dict[str, Event], dict[str, Observation]]:
         events: dict[str, Event] = {}
         observations: dict[str, Observation] = {}
         # Parent observations loaded for event provenance do not become
@@ -493,7 +489,7 @@ class PropositionConstructor:
                     if len(related_events) < 500:
                         break
                     offset += 500
-        return events, observations, selected_observations
+        return events, selected_observations
 
     def _load_observation(
         self,
