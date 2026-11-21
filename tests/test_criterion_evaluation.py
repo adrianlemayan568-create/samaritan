@@ -374,6 +374,22 @@ def test_hypothesis_evaluation_engine_runs_findings_and_synthesis_end_to_end(tmp
     assert record.findings[0].status == "matched"
     assert record.synthesis.outcome == "supported"
 
+    incomplete_rule = replace(
+        rule,
+        bearing_definitions=tuple(
+            item for item in rule.bearing_definitions
+            if not (
+                item.outcome_code == "not_equal"
+                and item.alternative_id == alternative.alternative_id
+            )
+        ),
+    )
+    import pytest
+    with pytest.raises(ValueError, match="incomplete bearing coverage"):
+        incomplete_rule.validate_outcome_coverage(
+            evaluators, outcomes, (alternative.alternative_id,)
+        )
+
     forged_fingerprint = "sha256-v1:" + ("0" * 64)
     forged_focal = replace(
         proposition,
