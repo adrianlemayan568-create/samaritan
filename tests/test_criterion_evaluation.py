@@ -36,6 +36,7 @@ from samaritan.reasoning_contracts import (
     BearingDefinition,
     HypothesisAlternative,
     HypothesisEvaluationRule,
+    HypothesisEvaluationRuleRegistry,
     HypothesisSpecification,
     RESIDUAL_ALTERNATIVE_ID,
 )
@@ -356,10 +357,13 @@ def test_hypothesis_evaluation_engine_runs_findings_and_synthesis_end_to_end(tmp
         evaluation_rule=rule,
     )
     fixed_time = datetime(2026, 11, 21, 12, 0, tzinfo=timezone.utc)
+    rule_registry = HypothesisEvaluationRuleRegistry()
+    rule_registry.register(rule)
     engine = HypothesisEvaluationEngine(
         repository,
         evaluators,
         outcomes,
+        rule_registry,
         semantics_registry=semantics_registry,
         clock=lambda: fixed_time,
     )
@@ -373,6 +377,13 @@ def test_hypothesis_evaluation_engine_runs_findings_and_synthesis_end_to_end(tmp
     assert record.evidence_set_id == evidence_set.evidence_set_id
     assert record.findings[0].status == "matched"
     assert record.synthesis.outcome == "supported"
+
+    altered_rule = replace(rule, description="Unregistered altered definition.")
+    altered_specification = replace(
+        specification, evaluation_rule=altered_rule
+    )
+    with pytest.raises(ValueError, match="does not match its registered immutable definition"):
+        engine.evaluate(altered_specification, evidence_set)
 
     mismatched_evidence = replace(evidence_set, evidence=())
     import pytest
