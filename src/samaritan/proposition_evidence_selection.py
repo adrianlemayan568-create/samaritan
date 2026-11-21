@@ -200,6 +200,7 @@ def resolve_event_roles(
             )
 
         candidates: list[tuple[Event, dict[str, str]]] = []
+        participant_failure: tuple[str, int] | None = None
         for event in selected_events:
             if event.event_type != binding.event_type:
                 continue
@@ -212,6 +213,15 @@ def resolve_event_roles(
                     if participant.role == participant_role
                 )
                 if len(participant_ids) != 1:
+                    if participant_failure is None:
+                        participant_failure = (participant_role, len(participant_ids))
+                    valid_candidate = False
+                    break
+                existing_entity_id = resolved_entities.get(entity_role)
+                if (
+                    existing_entity_id is not None
+                    and existing_entity_id != participant_ids[0]
+                ):
                     valid_candidate = False
                     break
                 resolved_entities[entity_role] = participant_ids[0]
@@ -222,9 +232,19 @@ def resolve_event_roles(
             raw_count = sum(
                 event.event_type == binding.event_type for event in selected_events
             )
+            if raw_count == 0:
+                raise EvidenceSelectionError(
+                    f"expected exactly one {binding.event_type} event for {role_name}; found 0"
+                )
+            if participant_failure is not None:
+                participant_role, found_count = participant_failure
+                raise EvidenceSelectionError(
+                    f"expected exactly one participant with role {participant_role!r} "
+                    f"in {role_name}; found {found_count}"
+                )
             raise EvidenceSelectionError(
-                f"expected exactly one participant-consistent {binding.event_type} event "
-                f"for {role_name}; found 0 valid candidates among {raw_count} type matches"
+                f"expected exactly one participant-consistent {binding.event_type} "
+                f"event for {role_name}; found 0 valid candidates among {raw_count} type matches"
             )
         role_options.append((role_name, definition.required, tuple(candidates)))
 
@@ -237,21 +257,19 @@ def resolve_event_roles(
     assignment: list[tuple[str, Event]] = []
     assigned_entities: dict[str, str] = {}
     used_event_ids: dict[str, str] = {}
+    conflicting_entity_roles: set[str] = set()
+    duplicate_event_role_pairs: set[tuple[str, str]] = set()
 
     def search(index: int, optional_count: int) -> None:
         nonlocal best_optional_count
         if index == len(role_options):
             selected_role_names = {name for name, _ in assignment}
             for entity_binding in construction.entity_bindings:
-                entity_definition = definitions[entity_binding.semantic_role]
                 dependency_roles = {
                     item.event_role for item in entity_binding.participant_bindings
                 }
-                if (
-                    not dependency_roles.issubset(selected_role_names)
-                    and entity_definition.required
-                ):
-                    return
+                # A required entity with an absent optional event dependency is
+                # diagnosed by resolve_entity_roles after the event assignment.
                 if (
                     dependency_roles.issubset(selected_role_names)
                     and entity_binding.semantic_role not in assigned_entities
@@ -284,12 +302,18 @@ def resolve_event_roles(
                 continue
             event, candidate_entities = choice
             if event.event_id in used_event_ids:
+                duplicate_event_role_pairs.add((used_event_ids[event.event_id], role_name))
                 continue
-            if any(
-                entity_role in assigned_entities
-                and assigned_entities[entity_role] != entity_id
+            conflicting = {
+                entity_role
                 for entity_role, entity_id in candidate_entities.items()
-            ):
+                if (
+                    entity_role in assigned_entities
+                    and assigned_entities[entity_role] != entity_id
+                )
+            }
+            if conflicting:
+                conflicting_entity_roles.update(conflicting)
                 continue
 
             newly_assigned = [
@@ -311,15 +335,60 @@ def resolve_event_roles(
 
     search(0, 0)
     if not solutions:
+        if conflicting_entity_roles:
+            role_name = sorted(conflicting_entity_roles)[0]
+            raise EvidenceSelectionError(
+                f"entity role {role_name} resolves to different entities across source events"
+            )
+        if duplicate_event_role_pairs:
+            raise EvidenceSelectionError(
+                "one source event cannot satisfy multiple semantic roles"
+            )
         raise EvidenceSelectionError(
             "no complete event-role assignment satisfies all registered participant constraints"
         )
+
+    selected = solutions[0]
+    selected_by_role = dict(selected)
+    selected_event_ids = {event.event_id for _, event in selected}
+    for role_name, required_role, candidates in role_options:
+        if required_role or role_name in selected_by_role or not candidates:
+            continue
+        reusable_candidates = [
+            event for event, _ in candidates
+            if event.event_id in selected_event_ids
+        ]
+        if reusable_candidates and all(
+            event.event_id in selected_event_ids for event, _ in candidates
+        ):
+            raise EvidenceSelectionError(
+                "one source event cannot satisfy multiple semantic roles"
+            )
+
     if len(solutions) > 1:
+        for role_name, required_role, candidates in role_options:
+            if not candidates:
+                continue
+            selected_ids = {
+                dict(solution).get(role_name).event_id
+                for solution in solutions
+                if dict(solution).get(role_name) is not None
+            }
+            if len(selected_ids) > 1:
+                event_type = next(
+                    item.event_type for item in construction.event_bindings
+                    if item.semantic_role == role_name
+                )
+                qualifier = "at most one"
+                raise EvidenceSelectionError(
+                    f"event-role selection is ambiguous: expected {qualifier} "
+                    f"{event_type} event for {role_name}; found {len(candidates)}"
+                )
         raise EvidenceSelectionError(
             "event-role selection is ambiguous: multiple complete assignments satisfy "
             "the registered event-type and participant constraints"
         )
-    return ResolvedPropositionSelection(solutions[0])
+    return ResolvedPropositionSelection(selected)
 
 
 @dataclass(frozen=True, slots=True)
