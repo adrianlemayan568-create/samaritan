@@ -5,9 +5,9 @@ from __future__ import annotations
 import json
 import uuid
 from dataclasses import dataclass
-from samaritan.analysis_contracts import EvidenceReference
 from datetime import datetime
 
+from samaritan.analysis_contracts import EvidenceReference
 from samaritan.contracts import SCHEMA_VERSION, normalize_timestamp, validate_id, validate_json_object, validate_text
 from samaritan.proposition_semantics import PropositionSemantics
 from samaritan.proposition_semantics_fingerprint import proposition_semantics_fingerprint
