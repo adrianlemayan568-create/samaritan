@@ -371,7 +371,12 @@ class PropositionConstructor:
             parameter_values, sort_keys=True, separators=(",", ":"), ensure_ascii=False
         )
         role_tuple = tuple(ordered_roles)
-        semantics_fingerprint = proposition_semantics_fingerprint(semantics)
+        try:
+            semantics_fingerprint = proposition_semantics_fingerprint(semantics)
+        except (UnicodeError, TypeError, ValueError) as exc:
+            raise PropositionConstructionError(
+                f"semantics fingerprint could not be computed: {exc}"
+            ) from exc
         identity_algorithm_version = CURRENT_PROPOSITION_IDENTITY_ALGORITHM
         proposition_id = deterministic_proposition_id(
             semantics.proposition_type,
