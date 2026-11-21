@@ -10,12 +10,16 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 
-from samaritan.contracts import Event, Relationship
+from samaritan.analysis_contracts import EvidenceReference
+from samaritan.contracts import Event, Observation, Relationship
+from samaritan.database import DatabaseIntegrityError
 from samaritan.proposition_construction_contracts import (
     PropositionConstructionDefinition,
     RelationshipParameterBinding,
 )
+from samaritan.proposition_contracts import PropositionEvidenceManifest
 from samaritan.proposition_semantics import PropositionSemantics
+from samaritan.repository import Repository
 
 
 class EvidenceSelectionError(ValueError):
@@ -39,6 +43,104 @@ class ResolvedPropositionSelection:
 
     def event_for(self, role_name: str) -> Event | None:
         return next((event for name, event in self.event_roles if name == role_name), None)
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedManifestSelection:
+    """Exact event/observation records selected by one immutable manifest."""
+
+    events: tuple[Event, ...]
+    selected_observations: tuple[Observation, ...]
+    provenance_observations: tuple[Observation, ...]
+
+
+def resolve_manifest_selection(
+    repository: Repository,
+    manifest: PropositionEvidenceManifest,
+) -> ResolvedManifestSelection:
+    """Resolve event and observation references without widening event-only scope."""
+    if type(repository) is not Repository:
+        raise TypeError("repository must be a Repository")
+    if type(manifest) is not PropositionEvidenceManifest:
+        raise TypeError("manifest must be a PropositionEvidenceManifest")
+
+    events: dict[str, Event] = {}
+    observations: dict[str, Observation] = {}
+    selected_observations: dict[str, Observation] = {}
+    provenance_observations: dict[str, Observation] = {}
+
+    def load_observation(observation_id: str) -> Observation:
+        observation = observations.get(observation_id)
+        if observation is None:
+            observation = repository.get_observation(observation_id)
+            if observation is None:
+                raise DatabaseIntegrityError(
+                    f"referenced observation does not exist: {observation_id}"
+                )
+            if type(observation) is not Observation or observation.observation_id != observation_id:
+                raise DatabaseIntegrityError(
+                    "repository returned an invalid or mismatched observation"
+                )
+            observations[observation_id] = observation
+        return observation
+
+    def load_event(event_id: str) -> Event:
+        event = events.get(event_id)
+        if event is None:
+            event = repository.get_event(event_id)
+            if event is None:
+                raise DatabaseIntegrityError(
+                    f"referenced event does not exist: {event_id}"
+                )
+            if type(event) is not Event or event.event_id != event_id:
+                raise DatabaseIntegrityError(
+                    "repository returned an invalid or mismatched event"
+                )
+            parent = load_observation(event.observation_id)
+            if parent.observation_id != event.observation_id:
+                raise DatabaseIntegrityError("event observation provenance mismatch")
+            events[event_id] = event
+            provenance_observations[parent.observation_id] = parent
+        return event
+
+    for reference in manifest.evidence:
+        if type(reference) is not EvidenceReference:
+            raise TypeError("manifest evidence must contain EvidenceReference objects")
+        if reference.event_id is not None:
+            load_event(reference.event_id)
+            continue
+
+        observation = load_observation(reference.observation_id)
+        selected_observations[observation.observation_id] = observation
+        provenance_observations[observation.observation_id] = observation
+        offset = 0
+        while True:
+            batch = repository.list_events(
+                observation_id=observation.observation_id,
+                limit=500,
+                offset=offset,
+            )
+            if not isinstance(batch, tuple) or not all(
+                type(item) is Event for item in batch
+            ):
+                raise DatabaseIntegrityError(
+                    "repository returned invalid events for a manifest observation"
+                )
+            for item in batch:
+                if item.observation_id != observation.observation_id:
+                    raise DatabaseIntegrityError(
+                        "event observation provenance mismatch"
+                    )
+                load_event(item.event_id)
+            if len(batch) < 500:
+                break
+            offset += 500
+
+    return ResolvedManifestSelection(
+        events=tuple(events.values()),
+        selected_observations=tuple(selected_observations.values()),
+        provenance_observations=tuple(provenance_observations.values()),
+    )
 
 
 def resolve_event_roles(
