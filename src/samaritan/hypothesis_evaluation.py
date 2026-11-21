@@ -78,6 +78,11 @@ class HypothesisEvaluationEngine:
             proposition.validate_against(semantics)
 
         rule = specification.evaluation_rule
+        rule.validate_outcome_coverage(
+            self.criterion_engine.evaluator_registry,
+            self.outcome_registry,
+            tuple(item.alternative_id for item in specification.alternatives),
+        )
         rule.validate_for(
             specification.hypothesis.proposition,
             production=production,
