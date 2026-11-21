@@ -29,6 +29,7 @@ from samaritan.proposition_semantics import (
 from samaritan.repository import Repository
 from samaritan.proposition_validation import PropositionProvenanceValidator
 from samaritan.proposition_evidence_selection import (
+    resolve_manifest_selection,
     resolve_event_roles,
     resolve_entity_roles,
     resolve_parameter_values,
@@ -141,7 +142,18 @@ class PropositionConstructor:
                     f"required semantic parameter has no registered binding: {parameter.parameter_name}"
                 )
 
-        events, selected_observations = self._resolve_evidence(evidence_set.evidence)
+        evidence_manifest = PropositionEvidenceManifest(
+            evidence_set_id=evidence_set.evidence_set_id,
+            evidence=evidence_set.evidence,
+        )
+        manifest_selection = resolve_manifest_selection(
+            self.repository, evidence_manifest
+        )
+        events = {item.event_id: item for item in manifest_selection.events}
+        selected_observations = {
+            item.observation_id: item
+            for item in manifest_selection.selected_observations
+        }
         try:
             resolved_selection = resolve_event_roles(
                 semantics, construction, tuple(events.values())
@@ -306,10 +318,7 @@ class PropositionConstructor:
             construction_version=construction.construction_version,
             semantics_fingerprint=semantics_fingerprint,
             identity_algorithm_version=identity_algorithm_version,
-            evidence_manifest=PropositionEvidenceManifest(
-                evidence_set_id=evidence_set.evidence_set_id,
-                evidence=evidence_set.evidence,
-            ),
+            evidence_manifest=evidence_manifest,
             parameters_json=parameters_json,
         )
         try:
@@ -349,64 +358,3 @@ class PropositionConstructor:
                     break
                 offset += 500
         return tuple(relationships.values())
-
-    def _resolve_evidence(
-        self,
-        references: tuple[EvidenceReference, ...],
-    ) -> tuple[dict[str, Event], dict[str, Observation]]:
-        events: dict[str, Event] = {}
-        observations: dict[str, Observation] = {}
-        # Parent observations loaded for event provenance do not become
-        # observation-level selections. Only explicit observation references
-        # authorize construction from all records attached to an observation.
-        selected_observations: dict[str, Observation] = {}
-        for reference in references:
-            if reference.event_id is not None:
-                event = self.repository.get_event(reference.event_id)
-                if event is None:
-                    raise DatabaseIntegrityError(
-                        f"referenced event does not exist: {reference.event_id}"
-                    )
-                if not type(event) is Event or event.event_id != reference.event_id:
-                    raise DatabaseIntegrityError("repository returned an invalid or mismatched event")
-                events[event.event_id] = event
-                self._load_observation(event.observation_id, observations)
-            else:
-                observation = self._load_observation(reference.observation_id, observations)
-                selected_observations[observation.observation_id] = observation
-                offset = 0
-                while True:
-                    related_events = self.repository.list_events(
-                        observation_id=observation.observation_id,
-                        limit=500,
-                        offset=offset,
-                    )
-                    if not isinstance(related_events, tuple) or not all(
-                        type(item) is Event for item in related_events
-                    ):
-                        raise DatabaseIntegrityError("repository returned invalid events for an observation")
-                    for event in related_events:
-                        if event.observation_id != observation.observation_id:
-                            raise DatabaseIntegrityError("event observation provenance mismatch")
-                        events[event.event_id] = event
-                    if len(related_events) < 500:
-                        break
-                    offset += 500
-        return events, selected_observations
-
-    def _load_observation(
-        self,
-        observation_id: str,
-        cache: dict[str, Observation],
-    ) -> Observation:
-        observation = cache.get(observation_id)
-        if observation is None:
-            observation = self.repository.get_observation(observation_id)
-            if observation is None:
-                raise DatabaseIntegrityError(
-                    f"referenced observation does not exist: {observation_id}"
-                )
-            if not type(observation) is Observation or observation.observation_id != observation_id:
-                raise DatabaseIntegrityError("repository returned an invalid or mismatched observation")
-            cache[observation_id] = observation
-        return observation
