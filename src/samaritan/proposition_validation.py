@@ -157,6 +157,34 @@ class PropositionProvenanceValidator:
             item.observation_id for item in manifest_selection.provenance_observations
         }
         manifest_event_ids = set(events)
+        try:
+            expected_event_selection = resolve_event_roles(
+                semantics, construction, tuple(manifest_selection.events)
+            )
+            expected_entity_role_records = resolve_entity_roles(
+                semantics, construction, expected_event_selection
+            )
+        except (TypeError, ValueError) as exc:
+            raise PropositionProvenanceError(str(exc)) from exc
+        expected_event_roles = dict(expected_event_selection.event_roles)
+        expected_entity_roles = {
+            item.role_name: item for item in expected_entity_role_records
+        }
+        for role_name, expected_event in expected_event_roles.items():
+            actual_role = roles.get(role_name)
+            if (
+                actual_role is None
+                or actual_role.value_id != expected_event.event_id
+                or actual_role.occurred_at != expected_event.occurred_at
+            ):
+                raise PropositionProvenanceError(
+                    f"event role presence or value does not match manifest selection: {role_name}"
+                )
+        for role_name, actual_role in roles.items():
+            if actual_role.role_kind == "event" and role_name not in expected_event_roles:
+                raise PropositionProvenanceError(
+                    f"event role is not selected by the evidence manifest: {role_name}"
+                )
         for item in proposition.field_provenance:
             for event_id in item.event_ids:
                 event = load_event(event_id)
@@ -253,10 +281,14 @@ class PropositionProvenanceValidator:
 
         entity_ids: set[str] = set()
         for role_name in entity_bindings:
+            expected_entity = expected_entity_roles.get(role_name)
             role = roles.get(role_name)
-            if role is None:
+            if expected_entity is None:
                 continue
-            expected_entity = expected_entity_roles[role_name]
+            if role is None:
+                raise PropositionProvenanceError(
+                    f"entity role is missing despite a manifest match: {role_name}"
+                )
             source = provenance.get(role_name)
             if source is None:
                 raise PropositionProvenanceError(
@@ -317,7 +349,7 @@ class PropositionProvenanceValidator:
                 semantics,
                 construction,
                 expected_event_selection,
-                resolved_entities,
+                expected_entity_role_records,
                 tuple(selected_relationships),
             )
         except (TypeError, ValueError) as exc:
