@@ -263,7 +263,6 @@ def resolve_event_roles(
     def search(index: int, optional_count: int) -> None:
         nonlocal best_optional_count
         if index == len(role_options):
-            selected_role_names = {name for name, _ in assignment}
             for entity_binding in construction.entity_bindings:
                 dependency_roles = {
                     item.event_role for item in entity_binding.participant_bindings
@@ -379,9 +378,8 @@ def resolve_event_roles(
                     item.event_type for item in construction.event_bindings
                     if item.semantic_role == role_name
                 )
-                qualifier = "at most one"
                 raise EvidenceSelectionError(
-                    f"event-role selection is ambiguous: expected {qualifier} "
+                    f"event-role selection is ambiguous: expected at most one "
                     f"{event_type} event for {role_name}; found {len(candidates)}"
                 )
         raise EvidenceSelectionError(
