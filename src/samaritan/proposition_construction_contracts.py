@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from types import MappingProxyType
+from typing import Mapping
 
-from samaritan.contracts import SCHEMA_VERSION, validate_text
+from samaritan.contracts import SCHEMA_VERSION, validate_identifier, validate_text
 
 
 @dataclass(frozen=True, slots=True)
@@ -17,7 +19,7 @@ class EventRoleBinding:
 
     def __post_init__(self) -> None:
         for field_name in ("semantic_role", "event_type"):
-            object.__setattr__(self, field_name, validate_text(getattr(self, field_name), field_name))
+            object.__setattr__(self, field_name, validate_identifier(getattr(self, field_name), field_name))
         if type(self.schema_version) is not int or self.schema_version != SCHEMA_VERSION:
             raise ValueError("unsupported event role binding schema version")
 
@@ -31,8 +33,8 @@ class ParticipantRoleBinding:
     schema_version: int = SCHEMA_VERSION
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "event_role", validate_text(self.event_role, "event_role"))
-        object.__setattr__(self, "participant_role", validate_text(self.participant_role, "participant_role"))
+        object.__setattr__(self, "event_role", validate_identifier(self.event_role, "event_role"))
+        object.__setattr__(self, "participant_role", validate_identifier(self.participant_role, "participant_role"))
         if type(self.schema_version) is not int or self.schema_version != SCHEMA_VERSION:
             raise ValueError("unsupported participant role binding schema version")
 
@@ -46,7 +48,7 @@ class EntityRoleBinding:
     schema_version: int = SCHEMA_VERSION
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "semantic_role", validate_text(self.semantic_role, "semantic_role"))
+        object.__setattr__(self, "semantic_role", validate_identifier(self.semantic_role, "semantic_role"))
         if not isinstance(self.participant_bindings, tuple) or not self.participant_bindings:
             raise TypeError("participant_bindings must be a non-empty tuple")
         if not all(isinstance(item, ParticipantRoleBinding) for item in self.participant_bindings):
@@ -139,8 +141,9 @@ class PropositionConstructionDefinition:
     schema_version: int = SCHEMA_VERSION
 
     def __post_init__(self) -> None:
-        for field_name in ("construction_id", "proposition_type", "description"):
-            object.__setattr__(self, field_name, validate_text(getattr(self, field_name), field_name))
+        for field_name in ("construction_id", "proposition_type"):
+            object.__setattr__(self, field_name, validate_identifier(getattr(self, field_name), field_name))
+        object.__setattr__(self, "description", validate_text(self.description, "description"))
         for field_name in ("construction_version", "semantics_version"):
             value = getattr(self, field_name)
             if type(value) is not int or value < 1:
@@ -198,15 +201,29 @@ class PropositionConstructionRegistry:
     """Register immutable construction definitions by exact ID and version."""
 
     def __init__(self) -> None:
-        self._definitions: dict[tuple[str, int], PropositionConstructionDefinition] = {}
+        self._definitions: dict[tuple[str, int], PropositionConstructionDefinition] | Mapping[
+            tuple[str, int], PropositionConstructionDefinition
+        ] = {}
+        self._frozen = False
 
     def register(self, definition: PropositionConstructionDefinition) -> None:
-        if not isinstance(definition, PropositionConstructionDefinition):
-            raise TypeError("definition must be PropositionConstructionDefinition")
+        if type(definition) is not PropositionConstructionDefinition:
+            raise TypeError("definition must be exactly PropositionConstructionDefinition")
+        if self._frozen:
+            raise RuntimeError("proposition construction registry is frozen")
         key = (definition.construction_id, definition.construction_version)
         if key in self._definitions:
             raise ValueError("proposition construction version is already registered")
         self._definitions[key] = definition
+
+    def freeze(self) -> None:
+        if not self._frozen:
+            self._definitions = MappingProxyType(dict(self._definitions))
+            self._frozen = True
+
+    @property
+    def definitions(self) -> Mapping[tuple[str, int], PropositionConstructionDefinition]:
+        return MappingProxyType(dict(self._definitions))
 
     def get(self, construction_id: str, construction_version: int) -> PropositionConstructionDefinition:
         construction_id = validate_text(construction_id, "construction_id")
