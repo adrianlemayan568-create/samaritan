@@ -51,7 +51,7 @@ class EntityRoleBinding:
         object.__setattr__(self, "semantic_role", validate_identifier(self.semantic_role, "semantic_role"))
         if not isinstance(self.participant_bindings, tuple) or not self.participant_bindings:
             raise TypeError("participant_bindings must be a non-empty tuple")
-        if not all(isinstance(item, ParticipantRoleBinding) for item in self.participant_bindings):
+        if not all(type(item) is ParticipantRoleBinding for item in self.participant_bindings):
             raise TypeError("participant_bindings must contain ParticipantRoleBinding objects")
         event_roles = tuple(item.event_role for item in self.participant_bindings)
         if len(event_roles) != len(set(event_roles)):
@@ -71,8 +71,9 @@ class EventAttributeParameterBinding:
     schema_version: int = SCHEMA_VERSION
 
     def __post_init__(self) -> None:
-        for name in ("parameter_name", "event_role", "attribute_name", "meaning"):
-            object.__setattr__(self, name, validate_text(getattr(self, name), name))
+        for name in ("parameter_name", "event_role", "attribute_name"):
+            object.__setattr__(self, name, validate_identifier(getattr(self, name), name))
+        object.__setattr__(self, "meaning", validate_text(self.meaning, "meaning"))
         _validate_version(self.schema_version, "event attribute parameter binding")
 
 
@@ -87,8 +88,9 @@ class TemporalDifferenceParameterBinding:
     schema_version: int = SCHEMA_VERSION
 
     def __post_init__(self) -> None:
-        for name in ("parameter_name", "earlier_event_role", "later_event_role", "meaning"):
-            object.__setattr__(self, name, validate_text(getattr(self, name), name))
+        for name in ("parameter_name", "earlier_event_role", "later_event_role"):
+            object.__setattr__(self, name, validate_identifier(getattr(self, name), name))
+        object.__setattr__(self, "meaning", validate_text(self.meaning, "meaning"))
         if self.earlier_event_role == self.later_event_role:
             raise ValueError("temporal difference event roles must be different")
         _validate_version(self.schema_version, "temporal difference parameter binding")
@@ -109,9 +111,10 @@ class RelationshipParameterBinding:
     def __post_init__(self) -> None:
         for name in (
             "parameter_name", "source_entity_role", "target_entity_role",
-            "relationship_type", "relationship_field", "meaning",
+            "relationship_type", "relationship_field",
         ):
-            object.__setattr__(self, name, validate_text(getattr(self, name), name))
+            object.__setattr__(self, name, validate_identifier(getattr(self, name), name))
+        object.__setattr__(self, "meaning", validate_text(self.meaning, "meaning"))
         if self.source_entity_role == self.target_entity_role:
             raise ValueError("relationship entity roles must be different")
         if self.relationship_field not in {"relationship_id", "relationship_type", "observed_at"}:
@@ -150,11 +153,11 @@ class PropositionConstructionDefinition:
                 raise ValueError(f"{field_name} must be a positive integer")
         if not isinstance(self.event_bindings, tuple) or not self.event_bindings:
             raise TypeError("event_bindings must be a non-empty tuple")
-        if not all(isinstance(item, EventRoleBinding) for item in self.event_bindings):
+        if not all(type(item) is EventRoleBinding for item in self.event_bindings):
             raise TypeError("event_bindings must contain EventRoleBinding objects")
         if not isinstance(self.entity_bindings, tuple):
             raise TypeError("entity_bindings must be a tuple")
-        if not all(isinstance(item, EntityRoleBinding) for item in self.entity_bindings):
+        if not all(type(item) is EntityRoleBinding for item in self.entity_bindings):
             raise TypeError("entity_bindings must contain EntityRoleBinding objects")
         semantic_roles = tuple(item.semantic_role for item in self.event_bindings + self.entity_bindings)
         if len(semantic_roles) != len(set(semantic_roles)):
@@ -169,15 +172,15 @@ class PropositionConstructionDefinition:
             + self.relationship_parameter_bindings
         )
         if not isinstance(self.event_attribute_bindings, tuple) or not all(
-            isinstance(item, EventAttributeParameterBinding) for item in self.event_attribute_bindings
+            type(item) is EventAttributeParameterBinding for item in self.event_attribute_bindings
         ):
             raise TypeError("event_attribute_bindings must contain EventAttributeParameterBinding objects")
         if not isinstance(self.temporal_parameter_bindings, tuple) or not all(
-            isinstance(item, TemporalDifferenceParameterBinding) for item in self.temporal_parameter_bindings
+            type(item) is TemporalDifferenceParameterBinding for item in self.temporal_parameter_bindings
         ):
             raise TypeError("temporal_parameter_bindings must contain TemporalDifferenceParameterBinding objects")
         if not isinstance(self.relationship_parameter_bindings, tuple) or not all(
-            isinstance(item, RelationshipParameterBinding) for item in self.relationship_parameter_bindings
+            type(item) is RelationshipParameterBinding for item in self.relationship_parameter_bindings
         ):
             raise TypeError("relationship_parameter_bindings must contain RelationshipParameterBinding objects")
         parameter_names = tuple(item.parameter_name for item in parameter_bindings)
@@ -226,7 +229,7 @@ class PropositionConstructionRegistry:
         return MappingProxyType(dict(self._definitions))
 
     def get(self, construction_id: str, construction_version: int) -> PropositionConstructionDefinition:
-        construction_id = validate_text(construction_id, "construction_id")
+        construction_id = validate_identifier(construction_id, "construction_id")
         if type(construction_version) is not int or construction_version < 1:
             raise ValueError("construction_version must be a positive integer")
         try:
