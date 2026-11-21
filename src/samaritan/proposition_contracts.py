@@ -111,6 +111,8 @@ class PropositionEvidenceManifest:
         )
         if not isinstance(self.evidence, tuple):
             raise TypeError("evidence manifest evidence must be a tuple")
+        if not self.evidence:
+            raise ValueError("evidence manifest must not be empty")
         if not all(isinstance(item, EvidenceReference) for item in self.evidence):
             raise TypeError(
                 "evidence manifest must contain EvidenceReference objects"
