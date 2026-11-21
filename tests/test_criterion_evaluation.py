@@ -5,6 +5,7 @@ from samaritan.criterion_evaluation import CriterionEvaluationEngine
 from samaritan.hypothesis_evaluation import HypothesisEvaluationEngine
 from samaritan.contracts import (
     Event,
+    Entity,
     Observation,
     Source,
     new_id,
@@ -403,3 +404,115 @@ def test_missing_registered_attribute_is_insufficient_not_a_negative_finding(tmp
     assert finding.status == "insufficient"
     assert finding.outcome_code is None
     assert "coverage" in finding.missing_information[0].lower()
+
+
+def test_temporal_gap_reports_ordering_violation_separately(tmp_path):
+    from samaritan.analysis_contracts import EvidenceReference
+    from samaritan.contracts import payload_checksum
+    from samaritan.proposition_contracts import PropositionEvidenceManifest
+
+    repository, proposition, _, original_event, _ = make_evaluation_context(tmp_path)
+    now = original_event.occurred_at
+    source = Source(
+        source_id=new_id(),
+        source_type="synthetic",
+        name="temporal ordering test",
+        created_at=now,
+    )
+    repository.register_source(source)
+    later_observation = Observation(
+        observation_id=new_id(),
+        source_id=source.source_id,
+        received_at=now + timedelta(seconds=30),
+        raw_payload="{}",
+        payload_sha256=payload_checksum("{}"),
+    )
+    later_event = Event(
+        event_id=new_id(),
+        observation_id=later_observation.observation_id,
+        event_type="authentication_success",
+        occurred_at=now + timedelta(seconds=30),
+        original_timestamp=(now + timedelta(seconds=30)).isoformat().replace("+00:00", "Z"),
+        normalized_data_json="{}",
+        participants=(),
+    )
+    repository.persist_observation(later_observation, events=(later_event,))
+    roles = (
+        PropositionRoleValue("earlier_event", "event", later_event.event_id, later_event.occurred_at),
+        PropositionRoleValue("later_event", "event", original_event.event_id, original_event.occurred_at),
+    )
+    scope = PropositionTemporalScope(now, later_event.occurred_at)
+    provenance = (
+        PropositionFieldProvenance(
+            "earlier_event", (later_event.event_id,), (later_observation.observation_id,)
+        ),
+        PropositionFieldProvenance(
+            "later_event", (original_event.event_id,), (original_event.observation_id,)
+        ),
+    )
+    evidence = (
+        EvidenceReference(event_id=original_event.event_id),
+        EvidenceReference(event_id=later_event.event_id),
+    )
+    proposition = Proposition(
+        proposition_id=deterministic_proposition_id(
+            proposition.proposition_type,
+            proposition.semantics_version,
+            roles,
+            scope,
+            semantics_fingerprint=proposition.semantics_fingerprint,
+            identity_algorithm_version=proposition.identity_algorithm_version,
+        ),
+        proposition_type=proposition.proposition_type,
+        semantics_version=proposition.semantics_version,
+        roles=roles,
+        temporal_scope=scope,
+        field_provenance=provenance,
+        construction_id=proposition.construction_id,
+        construction_version=proposition.construction_version,
+        semantics_fingerprint=proposition.semantics_fingerprint,
+        identity_algorithm_version=proposition.identity_algorithm_version,
+        evidence_manifest=PropositionEvidenceManifest(
+            evidence_set_id=new_id(), evidence=evidence
+        ),
+    )
+    selected = EvidenceSet(
+        evidence_set_id=proposition.evidence_manifest.evidence_set_id,
+        evidence=evidence,
+        created_at=now + timedelta(minutes=1),
+    )
+    parameters = (
+        CriterionParameterDefinition("earlier_event_role", "string", required=True),
+        CriterionParameterDefinition("later_event_role", "string", required=True),
+        CriterionParameterDefinition("maximum_seconds", "integer", required=True),
+    )
+    criterion = CriterionDefinition(
+        criterion_id="strict-temporal-order",
+        criterion_type="temporal_order",
+        parameters_json='{"earlier_event_role":"earlier_event","later_event_role":"later_event","maximum_seconds":60}',
+        description="The earlier event must strictly precede the later event.",
+        independence_group="temporal-order-source",
+        parameter_definitions=parameters,
+    )
+    evaluators = CriterionEvaluatorRegistry()
+    evaluators.register(CriterionEvaluatorDefinition(
+        criterion_type=criterion.criterion_type,
+        evaluator_version=1,
+        evaluator_type="temporal_gap_within",
+        parameter_definitions=parameters,
+        description="Check strict event ordering and maximum elapsed seconds.",
+    ))
+    outcomes = CriterionOutcomeRegistry()
+    for code in ("within_limit", "exceeds_limit", "ordering_violation"):
+        outcomes.register(CriterionOutcomeDefinition(
+            criterion_type=criterion.criterion_type,
+            outcome_code=code,
+            meaning=f"Temporal outcome {code}.",
+        ))
+
+    finding = CriterionEvaluationEngine(repository, evaluators, outcomes).evaluate(
+        criterion, proposition, selected
+    )
+
+    assert finding.status == "not_matched"
+    assert finding.outcome_code == "ordering_violation"
