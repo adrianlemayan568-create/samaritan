@@ -49,7 +49,7 @@ class HypothesisEvaluationEngine:
         )
         if semantics_registry is None:
             semantics_registry = build_default_proposition_semantics_registry()
-        if not isinstance(semantics_registry, PropositionSemanticsRegistry):
+        if type(semantics_registry) is not PropositionSemanticsRegistry:
             raise TypeError("semantics_registry must be a PropositionSemanticsRegistry")
         semantics_registry.freeze()
         outcome_registry.freeze()
