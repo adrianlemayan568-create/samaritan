@@ -95,7 +95,6 @@ def test_schema_version_one_migrates_to_two_without_losing_records(tmp_path):
         for statement in _SCHEMA_STATEMENTS:
             connection.execute(statement)
         connection.execute("PRAGMA user_version = 1")
-        insert_source(connection)
         insert_observation(connection)
 
     database = Database(path)
