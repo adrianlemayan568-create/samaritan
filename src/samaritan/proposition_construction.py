@@ -134,7 +134,7 @@ class PropositionConstructor:
                     f"required semantic parameter has no registered binding: {parameter.parameter_name}"
                 )
 
-        events, observations = self._resolve_evidence(evidence_set.evidence)
+        events, observations, selected_observations = self._resolve_evidence(evidence_set.evidence)
         selected_events: dict[str, Event] = {}
         for role_name, binding in event_definitions.items():
             matches = [event for event in events.values() if event.event_type == binding.event_type]
@@ -325,7 +325,7 @@ class PropositionConstructor:
             )
 
         if construction.relationship_parameter_bindings:
-            relationships = self._load_relationships(observations)
+            relationships = self._load_relationships(selected_observations)
             for binding in construction.relationship_parameter_bindings:
                 source_role = role_values.get(binding.source_entity_role)
                 target_role = role_values.get(binding.target_entity_role)
@@ -450,9 +450,14 @@ class PropositionConstructor:
     def _resolve_evidence(
         self,
         references: tuple[EvidenceReference, ...],
-    ) -> tuple[dict[str, Event], dict[str, Observation]]:
+    ) -> tuple[
+        dict[str, Event],
+        dict[str, Observation],
+        dict[str, Observation],
+    ]:
         events: dict[str, Event] = {}
         observations: dict[str, Observation] = {}
+        selected_observations: dict[str, Observation] = {}
         for reference in references:
             if reference.event_id is not None:
                 event = self.repository.get_event(reference.event_id)
@@ -466,6 +471,7 @@ class PropositionConstructor:
                 self._load_observation(event.observation_id, observations)
             else:
                 observation = self._load_observation(reference.observation_id, observations)
+                selected_observations[observation.observation_id] = observation
                 offset = 0
                 while True:
                     related_events = self.repository.list_events(
@@ -484,7 +490,7 @@ class PropositionConstructor:
                     if len(related_events) < 500:
                         break
                     offset += 500
-        return events, observations
+        return events, observations, selected_observations
 
     def _load_observation(
         self,
