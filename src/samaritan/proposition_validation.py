@@ -158,9 +158,23 @@ class PropositionProvenanceValidator:
                 "proposition is missing one or more required semantic roles"
             )
 
-        # Resolve the exact manifest through the shared repository-backed
-        # selection path. Event-only references load their parent observations
-        # for provenance but do not select observation-level child records.
+        # Authenticate the manifest against the immutable EvidenceSet
+        # persisted at construction time before resolving any source records.
+        persisted_evidence_set = self.repository.get_evidence_set(
+            proposition.evidence_manifest.evidence_set_id
+        )
+        if persisted_evidence_set is None:
+            raise PropositionProvenanceError(
+                "evidence manifest references an EvidenceSet that is not persisted"
+            )
+        if persisted_evidence_set.evidence != proposition.evidence_manifest.evidence:
+            raise PropositionProvenanceError(
+                "evidence manifest does not match the persisted EvidenceSet selection"
+            )
+
+        # Resolve the exact authenticated manifest through the shared
+        # repository-backed selection path. Event-only references load their
+        # parent observations for provenance but do not select child records.
         try:
             manifest_selection = resolve_manifest_selection(
                 self.repository, proposition.evidence_manifest
