@@ -172,9 +172,14 @@ def test_registered_event_attribute_evaluator_returns_stance_neutral_finding(tmp
         outcome_code="not_equal",
         meaning="The event attribute differs from the expected value or is absent.",
     ))
-    finding = CriterionEvaluationEngine(repository, evaluators, outcomes).evaluate(
-        criterion, proposition, evidence_set
+    fixed_time = datetime(2026, 11, 21, 12, 0, tzinfo=timezone.utc)
+    engine = CriterionEvaluationEngine(
+        repository, evaluators, outcomes, clock=lambda: fixed_time
     )
+    finding = engine.evaluate(criterion, proposition, evidence_set)
+    repeated = engine.evaluate(criterion, proposition, evidence_set)
+    assert finding.finding_id == repeated.finding_id
+    assert finding.created_at == repeated.created_at == fixed_time
     assert finding.status == "matched"
     assert finding.outcome_code == "equal"
     assert finding.evidence == (
