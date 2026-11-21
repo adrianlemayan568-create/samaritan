@@ -51,6 +51,7 @@ class HypothesisEvaluationEngine:
         if type(semantics_registry) is not PropositionSemanticsRegistry:
             raise TypeError("semantics_registry must be a PropositionSemanticsRegistry")
         self.clock = clock if clock is not None else (lambda: datetime.now(timezone.utc))
+        self.repository = repository
         self.criterion_engine = CriterionEvaluationEngine(
             repository,
             evaluator_registry,
@@ -83,6 +84,18 @@ class HypothesisEvaluationEngine:
         ):
             raise ValueError(
                 "evaluation EvidenceSet must exactly match the focal proposition evidence manifest"
+            )
+
+        persisted_evidence_set = self.repository.get_evidence_set(
+            focal_proposition.evidence_manifest.evidence_set_id
+        )
+        if (
+            persisted_evidence_set is None
+            or persisted_evidence_set.evidence_set_id != evidence_set.evidence_set_id
+            or persisted_evidence_set.evidence != evidence_set.evidence
+        ):
+            raise ValueError(
+                "evaluation EvidenceSet must match the persisted historical selection"
             )
 
         # A fingerprint supplied by a Proposition is only a claim until
