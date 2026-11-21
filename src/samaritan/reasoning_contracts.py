@@ -738,7 +738,7 @@ class HypothesisEvaluationRecord:
         criterion_ids = tuple(item.criterion_id for item in self.findings)
         if len(criterion_ids) != len(set(criterion_ids)):
             raise ValueError("evaluation findings must have unique criterion IDs")
-        if not isinstance(self.synthesis, DiagnosticitySynthesis):
+        if type(self.synthesis) is not DiagnosticitySynthesis:
             raise TypeError("synthesis must be a DiagnosticitySynthesis")
         _schema(self.schema_version, "hypothesis evaluation record")
 
