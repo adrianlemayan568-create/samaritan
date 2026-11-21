@@ -141,10 +141,13 @@ class PropositionConstructor:
                     f"required semantic parameter has no registered binding: {parameter.parameter_name}"
                 )
 
-        evidence_manifest = PropositionEvidenceManifest(
-            evidence_set_id=evidence_set.evidence_set_id,
-            evidence=evidence_set.evidence,
-        )
+        try:
+            evidence_manifest = PropositionEvidenceManifest(
+                evidence_set_id=evidence_set.evidence_set_id,
+                evidence=evidence_set.evidence,
+            )
+        except ValueError as exc:
+            raise PropositionConstructionError(str(exc)) from exc
         manifest_selection = resolve_manifest_selection(
             self.repository, evidence_manifest
         )
