@@ -1463,9 +1463,6 @@ def test_proposition_preserves_exact_immutable_evidence_selection_manifest(tmp_p
 
     assert proposition.evidence_manifest.evidence_set_id == evidence_set.evidence_set_id
     assert proposition.evidence_manifest.evidence == evidence_set.evidence
-    assert proposition.evidence_manifest.evidence is not evidence_set.evidence or (
-        proposition.evidence_manifest.evidence == evidence_set.evidence
-    )
     with pytest.raises(AttributeError):
         proposition.evidence_manifest.evidence_set_id = new_id()
 
