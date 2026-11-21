@@ -5,11 +5,13 @@ from __future__ import annotations
 import json
 
 from samaritan.contracts import Entity, Event, Observation, Relationship
+from samaritan.database import DatabaseIntegrityError
 from samaritan.proposition_construction_contracts import PropositionConstructionRegistry
 from samaritan.proposition_contracts import Proposition
 from samaritan.proposition_semantics import PropositionSemanticsRegistry
 from samaritan.repository import Repository
 from samaritan.proposition_evidence_selection import (
+    resolve_manifest_selection,
     resolve_event_roles,
     resolve_entity_roles,
     resolve_parameter_values,
@@ -134,85 +136,27 @@ class PropositionProvenanceValidator:
                 "proposition is missing one or more required semantic roles"
             )
 
-        # Resolve the immutable evidence-selection manifest independently of
-        # field provenance. Observation references select the observation and
-        # its child records; event references select one event. An event's
-        # parent observation is loaded only to verify provenance and does not
-        # authorize unrelated observation-level records such as relationships.
-        manifest_selected_observation_ids: set[str] = set()
-        manifest_provenance_observation_ids: set[str] = set()
-        manifest_event_ids: set[str] = set()
-        for reference in proposition.evidence_manifest.evidence:
-            if reference.event_id is not None:
-                event = load_event(reference.event_id)
-                # The event record identifies its owning observation. Loading
-                # that observation verifies the referenced repository record
-                # exists; there is no second observation ID in this reference
-                # to compare against.
-                observation = load_observation(event.observation_id)
-                manifest_event_ids.add(event.event_id)
-                manifest_provenance_observation_ids.add(observation.observation_id)
-            else:
-                observation = load_observation(reference.observation_id)
-                manifest_selected_observation_ids.add(observation.observation_id)
-                manifest_provenance_observation_ids.add(observation.observation_id)
-                offset = 0
-                while True:
-                    batch = self.repository.list_events(
-                        observation_id=observation.observation_id,
-                        limit=500,
-                        offset=offset,
-                    )
-                    if not isinstance(batch, tuple) or not all(
-                        type(item) is Event for item in batch
-                    ):
-                        raise PropositionProvenanceError(
-                            "repository returned invalid events for a manifest observation"
-                        )
-                    for event in batch:
-                        if event.observation_id != observation.observation_id:
-                            raise PropositionProvenanceError(
-                                "manifest observation contains an event with mismatched provenance"
-                            )
-                        manifest_event_ids.add(event.event_id)
-                        load_event(event.event_id)
-                    if len(batch) < 500:
-                        break
-                    offset += 500
-
-        # Re-run the same manifest-to-role selection used by construction.
-        # This rejects omitted optional roles and stale propositions when a
-        # manifest later contains a newly matching event.
+        # Resolve the exact manifest through the shared repository-backed
+        # selection path. Event-only references load their parent observations
+        # for provenance but do not select observation-level child records.
         try:
-            expected_event_selection = resolve_event_roles(
-                semantics,
-                construction,
-                tuple(events[event_id] for event_id in manifest_event_ids),
+            manifest_selection = resolve_manifest_selection(
+                self.repository, proposition.evidence_manifest
             )
-        except (TypeError, ValueError) as exc:
+        except (DatabaseIntegrityError, TypeError, ValueError) as exc:
             raise PropositionProvenanceError(str(exc)) from exc
-        expected_event_roles = dict(expected_event_selection.event_roles)
-        try:
-            resolved_entities = resolve_entity_roles(
-                semantics, construction, expected_event_selection
-            )
-        except (TypeError, ValueError) as exc:
-            raise PropositionProvenanceError(str(exc)) from exc
-        expected_entity_roles = {
-            item.role_name: item for item in resolved_entities
+        events.update({item.event_id: item for item in manifest_selection.events})
+        observations.update({
+            item.observation_id: item
+            for item in manifest_selection.provenance_observations
+        })
+        manifest_selected_observation_ids = {
+            item.observation_id for item in manifest_selection.selected_observations
         }
-        actual_event_roles = {
-            name: role for name, role in roles.items() if role.role_kind == "event"
+        manifest_provenance_observation_ids = {
+            item.observation_id for item in manifest_selection.provenance_observations
         }
-        if set(actual_event_roles) != set(expected_event_roles) or any(
-            actual_event_roles[name].value_id != event.event_id
-            or actual_event_roles[name].occurred_at != event.occurred_at
-            for name, event in expected_event_roles.items()
-        ):
-            raise PropositionProvenanceError(
-                "event roles do not match the unique role selection from the evidence manifest"
-            )
-
+        manifest_event_ids = set(events)
         for item in proposition.field_provenance:
             for event_id in item.event_ids:
                 event = load_event(event_id)
