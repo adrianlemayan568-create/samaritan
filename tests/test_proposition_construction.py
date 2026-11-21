@@ -545,10 +545,17 @@ def test_relationship_parameter_binding_requires_selected_observation_and_preser
         item for item in proposition.evidence_manifest.evidence
         if item.observation_id is None
     )
+    event_only_set = EvidenceSet(
+        evidence_set_id=new_id(),
+        evidence=event_only_manifest,
+        created_at=evidence_set.created_at,
+    )
+    repository.persist_evidence_set(event_only_set)
     forged = replace(
         proposition,
         evidence_manifest=replace(
             proposition.evidence_manifest,
+            evidence_set_id=event_only_set.evidence_set_id,
             evidence=event_only_manifest,
         ),
     )
@@ -588,12 +595,21 @@ def test_relationship_parameter_binding_requires_selected_observation_and_preser
     repository.persist_observation(
         second_observation, relationships=(second_relationship,)
     )
+    expanded_references = proposition.evidence_manifest.evidence + (
+        EvidenceReference(observation_id=second_observation.observation_id),
+    )
+    expanded_evidence_set = EvidenceSet(
+        evidence_set_id=new_id(),
+        evidence=expanded_references,
+        created_at=evidence_set.created_at,
+    )
+    repository.persist_evidence_set(expanded_evidence_set)
     expanded_manifest = replace(
         proposition,
         evidence_manifest=replace(
             proposition.evidence_manifest,
-            evidence=proposition.evidence_manifest.evidence
-            + (EvidenceReference(observation_id=second_observation.observation_id),),
+            evidence_set_id=expanded_evidence_set.evidence_set_id,
+            evidence=expanded_references,
         ),
     )
     with pytest.raises(PropositionProvenanceError, match="expected exactly one relationship of type account_uses_device; found 2"):
@@ -1577,6 +1593,7 @@ def test_proposition_preserves_exact_immutable_evidence_selection_manifest(tmp_p
 
     assert proposition.evidence_manifest.evidence_set_id == evidence_set.evidence_set_id
     assert proposition.evidence_manifest.evidence == evidence_set.evidence
+    assert repository.get_evidence_set(evidence_set.evidence_set_id) == evidence_set
     with pytest.raises(AttributeError):
         proposition.evidence_manifest.evidence_set_id = new_id()
 
@@ -1634,10 +1651,17 @@ def test_validator_rejects_field_provenance_outside_evidence_manifest(tmp_path):
         item for item in proposition.evidence_manifest.evidence
         if item.event_id != omitted_event_id
     )
+    reduced_evidence_set = EvidenceSet(
+        evidence_set_id=new_id(),
+        evidence=reduced_references,
+        created_at=evidence_set.created_at,
+    )
+    repository.persist_evidence_set(reduced_evidence_set)
     forged = replace(
         proposition,
         evidence_manifest=replace(
             proposition.evidence_manifest,
+            evidence_set_id=reduced_evidence_set.evidence_set_id,
             evidence=reduced_references,
         ),
     )
@@ -1672,12 +1696,21 @@ def test_validator_rejects_new_ambiguous_required_event_in_manifest(tmp_path):
         repository, source, account, "authentication_failure", "target",
         start + timedelta(seconds=5),
     )
+    ambiguous_references = proposition.evidence_manifest.evidence + (
+        EvidenceReference(event_id=duplicate.event_id),
+    )
+    ambiguous_evidence_set = EvidenceSet(
+        evidence_set_id=new_id(),
+        evidence=ambiguous_references,
+        created_at=evidence_set.created_at,
+    )
+    repository.persist_evidence_set(ambiguous_evidence_set)
     forged = replace(
         proposition,
         evidence_manifest=replace(
             proposition.evidence_manifest,
-            evidence=proposition.evidence_manifest.evidence
-            + (EvidenceReference(event_id=duplicate.event_id),),
+            evidence_set_id=ambiguous_evidence_set.evidence_set_id,
+            evidence=ambiguous_references,
         ),
     )
 
@@ -1708,12 +1741,21 @@ def test_validator_rejects_omitted_optional_event_role_when_manifest_has_match(t
         repository, source, device, "device_activity", "device",
         start + timedelta(seconds=240),
     )
+    optional_references = proposition.evidence_manifest.evidence + (
+        EvidenceReference(event_id=device_event.event_id),
+    )
+    optional_evidence_set = EvidenceSet(
+        evidence_set_id=new_id(),
+        evidence=optional_references,
+        created_at=evidence_set.created_at,
+    )
+    repository.persist_evidence_set(optional_evidence_set)
     forged = replace(
         proposition,
         evidence_manifest=replace(
             proposition.evidence_manifest,
-            evidence=proposition.evidence_manifest.evidence
-            + (EvidenceReference(event_id=device_event.event_id),),
+            evidence_set_id=optional_evidence_set.evidence_set_id,
+            evidence=optional_references,
         ),
     )
 
@@ -1916,3 +1958,66 @@ def test_validator_normalizes_expected_repository_boundary_failures(
     else:
         assert captured.value.__cause__ is original_error
 
+
+
+def test_validator_rejects_manifest_when_reference_order_differs_from_persisted_selection(
+    tmp_path,
+):
+    repository, source, start = make_repository(tmp_path)
+    account = Entity(
+        entity_id=new_id(), entity_type="user_account",
+        canonical_identifier="manifest-order-authentication", created_at=start,
+    )
+    _, evidence_set = _make_authentication_evidence(
+        repository, source, account, start
+    )
+    constructor = make_constructor(repository)
+    proposition = constructor.construct(
+        evidence_set, "account_authentication_sequence", 1
+    )
+    reordered = tuple(reversed(proposition.evidence_manifest.evidence))
+    forged = replace(
+        proposition,
+        evidence_manifest=replace(
+            proposition.evidence_manifest,
+            evidence=reordered,
+        ),
+    )
+
+    with pytest.raises(
+        PropositionProvenanceError,
+        match="does not match the persisted EvidenceSet selection",
+    ):
+        PropositionProvenanceValidator(
+            repository,
+            constructor.semantics_registry,
+            constructor.construction_registry,
+        ).validate(forged)
+
+
+def test_validator_rejects_manifest_without_persisted_evidence_set(
+    tmp_path, monkeypatch
+):
+    repository, source, start = make_repository(tmp_path)
+    account = Entity(
+        entity_id=new_id(), entity_type="user_account",
+        canonical_identifier="manifest-missing-evidence-set", created_at=start,
+    )
+    _, evidence_set = _make_authentication_evidence(
+        repository, source, account, start
+    )
+    constructor = make_constructor(repository)
+    proposition = constructor.construct(
+        evidence_set, "account_authentication_sequence", 1
+    )
+    monkeypatch.setattr(repository, "get_evidence_set", lambda _evidence_set_id: None)
+
+    with pytest.raises(
+        PropositionProvenanceError,
+        match="EvidenceSet that is not persisted",
+    ):
+        PropositionProvenanceValidator(
+            repository,
+            constructor.semantics_registry,
+            constructor.construction_registry,
+        ).validate(proposition)
