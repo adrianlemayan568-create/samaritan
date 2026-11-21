@@ -145,7 +145,7 @@ class PropositionConstructor:
             resolved_selection = resolve_event_roles(
                 semantics, construction, tuple(events.values())
             )
-        except (TypeError, ValueError) as exc:
+        except ValueError as exc:
             raise PropositionConstructionError(str(exc)) from exc
         selected_events = dict(resolved_selection.event_roles)
 
@@ -375,7 +375,7 @@ class PropositionConstructor:
         role_tuple = tuple(ordered_roles)
         try:
             semantics_fingerprint = proposition_semantics_fingerprint(semantics)
-        except (UnicodeError, TypeError, ValueError) as exc:
+        except (UnicodeError, ValueError) as exc:
             raise PropositionConstructionError(
                 f"semantics fingerprint could not be computed: {exc}"
             ) from exc
