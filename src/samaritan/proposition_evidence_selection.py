@@ -131,7 +131,11 @@ def resolve_manifest_selection(
                     raise DatabaseIntegrityError(
                         "event observation provenance mismatch"
                     )
-                load_event(item.event_id)
+                canonical_event = load_event(item.event_id)
+                if canonical_event.observation_id != observation.observation_id:
+                    raise DatabaseIntegrityError(
+                        "canonical event observation provenance mismatch"
+                    )
             if len(batch) < 500:
                 break
             offset += 500
