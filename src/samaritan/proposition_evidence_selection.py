@@ -67,6 +67,7 @@ def resolve_event_roles(
         )
 
     resolved: list[tuple[str, Event]] = []
+    used_event_ids: dict[str, str] = {}
     for role_name, binding in bindings.items():
         definition = definitions.get(role_name)
         if definition is None or definition.role_kind != "event":
@@ -91,7 +92,15 @@ def resolve_event_roles(
                     f"expected exactly one {binding.event_type} event for {role_name}; found 0"
                 )
             continue
-        resolved.append((role_name, matches[0]))
+        event = matches[0]
+        previous_role = used_event_ids.get(event.event_id)
+        if previous_role is not None:
+            raise EvidenceSelectionError(
+                f"one source event cannot satisfy multiple semantic roles: "
+                f"{previous_role} and {role_name}"
+            )
+        used_event_ids[event.event_id] = role_name
+        resolved.append((role_name, event))
     return ResolvedPropositionSelection(tuple(resolved))
 
 
