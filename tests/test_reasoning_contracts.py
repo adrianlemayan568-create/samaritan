@@ -765,7 +765,10 @@ def test_hypothesis_specification_rejects_alternative_with_different_fingerprint
 
 def test_rule_registry_allows_multiple_immutable_versions_of_one_rule_identity():
     specification, _, _ = make_specification()
-    first = specification.evaluation_rule
+    first = replace(
+        specification.evaluation_rule,
+        evaluation_rule_id="account-authentication-evaluation",
+    )
     second = replace(first, rule_version=first.rule_version + 1)
     registry = HypothesisEvaluationRuleRegistry()
 
