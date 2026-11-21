@@ -15,6 +15,7 @@ from samaritan.proposition_construction_contracts import (
 from samaritan.proposition_contracts import (
     Proposition,
     PropositionFieldProvenance,
+    PropositionEvidenceManifest,
     PropositionRoleValue,
     PropositionTemporalScope,
     CURRENT_PROPOSITION_IDENTITY_ALGORITHM,
@@ -402,6 +403,10 @@ class PropositionConstructor:
             construction_version=construction.construction_version,
             semantics_fingerprint=semantics_fingerprint,
             identity_algorithm_version=identity_algorithm_version,
+            evidence_manifest=PropositionEvidenceManifest(
+                evidence_set_id=evidence_set.evidence_set_id,
+                evidence=evidence_set.evidence,
+            ),
             parameters_json=parameters_json,
         )
         try:
