@@ -48,7 +48,6 @@ from samaritan.proposition_semantics import (
 from samaritan.proposition_semantics_fingerprint import proposition_semantics_fingerprint
 
 
-_TEST_SEMANTICS_FINGERPRINT = "test-semantics-fingerprint-v1"
 
 
 def make_evaluation_context(tmp_path):
@@ -488,8 +487,6 @@ def test_missing_registered_attribute_is_insufficient_not_a_negative_finding(tmp
 
 
 def test_temporal_gap_reports_ordering_violation_separately(tmp_path):
-    from samaritan.analysis_contracts import EvidenceReference
-    from samaritan.contracts import payload_checksum
     from samaritan.proposition_contracts import PropositionEvidenceManifest
 
     repository, proposition, _, original_event, _ = make_evaluation_context(tmp_path)
