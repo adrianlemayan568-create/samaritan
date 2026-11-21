@@ -3,6 +3,7 @@
 from collections.abc import Iterable, Sequence
 import sqlite3
 
+from samaritan.analysis_contracts import EvidenceReference
 from samaritan.contracts import (
     Entity,
     Event,
@@ -16,6 +17,7 @@ from samaritan.contracts import (
     validate_text,
 )
 from samaritan.database import Database, DatabaseIntegrityError
+from samaritan.evaluation_contracts import EvidenceSet
 
 
 def _require_records(
@@ -441,6 +443,134 @@ class Repository:
             participants=participants,
             schema_version=row["schema_version"],
         )
+
+    @staticmethod
+    def _evidence_set_from_rows(
+        parent: sqlite3.Row,
+        items: Sequence[sqlite3.Row],
+    ) -> EvidenceSet:
+        """Reconstruct an EvidenceSet while verifying its exact stored order."""
+        indexes = tuple(row["item_index"] for row in items)
+        if indexes != tuple(range(len(items))):
+            raise DatabaseIntegrityError(
+                "persisted evidence set item ordering is incomplete or invalid"
+            )
+
+        references = []
+        for row in items:
+            observation_id = row["observation_id"]
+            event_id = row["event_id"]
+            if (observation_id is None) == (event_id is None):
+                raise DatabaseIntegrityError(
+                    "persisted evidence set item must reference exactly one record"
+                )
+            references.append(
+                EvidenceReference(
+                    observation_id=observation_id,
+                    event_id=event_id,
+                )
+            )
+
+        return EvidenceSet(
+            evidence_set_id=parent["evidence_set_id"],
+            evidence=tuple(references),
+            created_at=parse_timestamp(parent["created_at"], "created_at"),
+            schema_version=parent["schema_version"],
+        )
+
+    def persist_evidence_set(self, evidence_set: EvidenceSet) -> None:
+        """Persist one immutable evidence selection; identical repeats are idempotent."""
+        if type(evidence_set) is not EvidenceSet:
+            raise TypeError("evidence_set must be exactly an EvidenceSet")
+
+        with self.database.connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            existing = connection.execute(
+                """
+                SELECT evidence_set_id, created_at, schema_version
+                FROM evidence_sets
+                WHERE evidence_set_id = ?
+                """,
+                (evidence_set.evidence_set_id,),
+            ).fetchone()
+
+            if existing is not None:
+                rows = connection.execute(
+                    """
+                    SELECT item_index, observation_id, event_id
+                    FROM evidence_set_items
+                    WHERE evidence_set_id = ?
+                    ORDER BY item_index
+                    """,
+                    (evidence_set.evidence_set_id,),
+                ).fetchall()
+                stored = self._evidence_set_from_rows(existing, rows)
+                if stored != evidence_set:
+                    raise DatabaseIntegrityError(
+                        "evidence_set_id already identifies a different immutable selection"
+                    )
+                return
+
+            connection.execute(
+                """
+                INSERT INTO evidence_sets (
+                    evidence_set_id, created_at, schema_version
+                )
+                VALUES (?, ?, ?)
+                """,
+                (
+                    evidence_set.evidence_set_id,
+                    evidence_set.created_at.isoformat(),
+                    evidence_set.schema_version,
+                ),
+            )
+
+            for index, reference in enumerate(evidence_set.evidence):
+                if type(reference) is not EvidenceReference:
+                    raise TypeError(
+                        "evidence set references must be exactly EvidenceReference objects"
+                    )
+                connection.execute(
+                    """
+                    INSERT INTO evidence_set_items (
+                        evidence_set_id, item_index, observation_id, event_id
+                    )
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (
+                        evidence_set.evidence_set_id,
+                        index,
+                        reference.observation_id,
+                        reference.event_id,
+                    ),
+                )
+
+    def get_evidence_set(self, evidence_set_id: str) -> EvidenceSet | None:
+        """Retrieve one immutable evidence selection with exact reference ordering."""
+        evidence_set_id = validate_id(evidence_set_id, "evidence_set_id")
+        with self.database.connection() as connection:
+            parent = connection.execute(
+                """
+                SELECT evidence_set_id, created_at, schema_version
+                FROM evidence_sets
+                WHERE evidence_set_id = ?
+                """,
+                (evidence_set_id,),
+            ).fetchone()
+            if parent is None:
+                return None
+
+            items = connection.execute(
+                """
+                SELECT item_index, observation_id, event_id
+                FROM evidence_set_items
+                WHERE evidence_set_id = ?
+                ORDER BY item_index
+                """,
+                (evidence_set_id,),
+            ).fetchall()
+
+        return self._evidence_set_from_rows(parent, items)
 
     def get_observation(
         self,
