@@ -197,7 +197,6 @@ def test_registered_event_attribute_evaluator_returns_stance_neutral_finding(tmp
 
 
 def test_evaluator_registry_rejects_arbitrary_evaluator_callbacks():
-    import pytest
 
     with pytest.raises(ValueError, match="unsupported built-in"):
         CriterionEvaluatorDefinition(
@@ -399,7 +398,6 @@ def test_hypothesis_evaluation_engine_runs_findings_and_synthesis_end_to_end(tmp
         empty_rule_registry_engine.evaluate(specification, evidence_set)
 
     mismatched_evidence = replace(evidence_set, evidence=())
-    import pytest
     with pytest.raises(ValueError, match="must exactly match the focal proposition evidence manifest"):
         engine.evaluate(specification, mismatched_evidence)
 
@@ -413,7 +411,6 @@ def test_hypothesis_evaluation_engine_runs_findings_and_synthesis_end_to_end(tmp
             )
         ),
     )
-    import pytest
     with pytest.raises(ValueError, match="incomplete bearing coverage"):
         incomplete_rule.validate_outcome_coverage(
             evaluators, outcomes, (alternative.alternative_id,)
@@ -452,7 +449,6 @@ def test_hypothesis_evaluation_engine_runs_findings_and_synthesis_end_to_end(tmp
         alternatives=(replace(alternative, proposition=forged_alternative),),
         evaluation_rule=forged_rule,
     )
-    import pytest
     with pytest.raises(ValueError, match="fingerprint does not match exact semantics"):
         engine.evaluate(forged_specification, evidence_set)
 
@@ -486,7 +482,6 @@ def test_hypothesis_evaluation_engine_runs_findings_and_synthesis_end_to_end(tmp
 
 
 def test_missing_registered_attribute_is_insufficient_not_a_negative_finding(tmp_path):
-    import pytest
 
     repository, proposition, evidence_set, _, _ = make_evaluation_context(tmp_path)
     parameters = (
