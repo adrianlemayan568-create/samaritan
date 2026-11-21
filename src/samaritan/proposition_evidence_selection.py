@@ -152,7 +152,7 @@ def resolve_event_roles(
     construction: PropositionConstructionDefinition,
     selected_events: tuple[Event, ...],
 ) -> ResolvedPropositionSelection:
-    """Resolve every registered event role from the manifest's selected events."""
+    """Resolve event roles using all registered participant-consistency constraints."""
     if not type(semantics) is PropositionSemantics:
         raise TypeError("semantics must be PropositionSemantics")
     if not type(construction) is PropositionConstructionDefinition:
@@ -173,8 +173,21 @@ def resolve_event_roles(
             "construction event bindings must cover every required semantic event role"
         )
 
-    resolved: list[tuple[str, Event]] = []
-    used_event_ids: dict[str, str] = {}
+    # A participant binding constrains which source event may fill its event role.
+    # It is not merely a later check performed after event selection.
+    participant_constraints: dict[str, list[tuple[str, str]]] = {}
+    for entity_binding in construction.entity_bindings:
+        definition = definitions.get(entity_binding.semantic_role)
+        if definition is None or definition.role_kind != "entity":
+            raise EvidenceSelectionError(
+                f"entity binding references an undeclared entity role: {entity_binding.semantic_role}"
+            )
+        for participant_binding in entity_binding.participant_bindings:
+            participant_constraints.setdefault(
+                participant_binding.event_role, []
+            ).append((entity_binding.semantic_role, participant_binding.participant_role))
+
+    role_options: list[tuple[str, bool, tuple[tuple[Event, dict[str, str]], ...]]] = []
     for role_name, binding in bindings.items():
         definition = definitions.get(role_name)
         if definition is None or definition.role_kind != "event":
@@ -185,30 +198,107 @@ def resolve_event_roles(
             raise EvidenceSelectionError(
                 f"event binding type conflicts with semantics for {role_name}"
             )
-        matches = tuple(
-            event for event in selected_events
-            if event.event_type == binding.event_type
-        )
-        if len(matches) > 1:
-            raise EvidenceSelectionError(
-                f"expected at most one {binding.event_type} event for {role_name}; found {len(matches)}"
-            )
-        if not matches:
-            if definition.required:
-                raise EvidenceSelectionError(
-                    f"expected exactly one {binding.event_type} event for {role_name}; found 0"
+
+        candidates: list[tuple[Event, dict[str, str]]] = []
+        for event in selected_events:
+            if event.event_type != binding.event_type:
+                continue
+            resolved_entities: dict[str, str] = {}
+            valid_candidate = True
+            for entity_role, participant_role in participant_constraints.get(role_name, ()):
+                participant_ids = tuple(
+                    participant.entity_id
+                    for participant in event.participants
+                    if participant.role == participant_role
                 )
-            continue
-        event = matches[0]
-        previous_role = used_event_ids.get(event.event_id)
-        if previous_role is not None:
-            raise EvidenceSelectionError(
-                f"one source event cannot satisfy multiple semantic roles: "
-                f"{previous_role} and {role_name}"
+                if len(participant_ids) != 1:
+                    valid_candidate = False
+                    break
+                resolved_entities[entity_role] = participant_ids[0]
+            if valid_candidate:
+                candidates.append((event, resolved_entities))
+
+        if not candidates and definition.required:
+            raw_count = sum(
+                event.event_type == binding.event_type for event in selected_events
             )
-        used_event_ids[event.event_id] = role_name
-        resolved.append((role_name, event))
-    return ResolvedPropositionSelection(tuple(resolved))
+            raise EvidenceSelectionError(
+                f"expected exactly one participant-consistent {binding.event_type} event "
+                f"for {role_name}; found 0 valid candidates among {raw_count} type matches"
+            )
+        role_options.append((role_name, definition.required, tuple(candidates)))
+
+    # Search for complete assignments, pruning as soon as a registered entity
+    # role would resolve to conflicting participant IDs. Stop after two results:
+    # one proves uniqueness; two are sufficient to prove ambiguity.
+    solutions: list[tuple[tuple[str, Event], ...]] = []
+    assignment: list[tuple[str, Event]] = []
+    assigned_entities: dict[str, str] = {}
+    used_event_ids: dict[str, str] = {}
+
+    def search(index: int) -> None:
+        if len(solutions) >= 2:
+            return
+        if index == len(role_options):
+            selected_role_names = {name for name, _ in assignment}
+            for entity_binding in construction.entity_bindings:
+                entity_definition = definitions[entity_binding.semantic_role]
+                dependency_roles = {
+                    item.event_role for item in entity_binding.participant_bindings
+                }
+                if not dependency_roles.issubset(selected_role_names) and entity_definition.required:
+                    return
+                if dependency_roles.issubset(selected_role_names) and entity_binding.semantic_role not in assigned_entities:
+                    return
+            solutions.append(tuple(assignment))
+            return
+
+        role_name, required_role, candidates = role_options[index]
+        # An optional event role is omitted only when no candidate satisfies
+        # its own registered participant constraints.
+        choices: tuple[tuple[Event, dict[str, str]] | None, ...]
+        choices = candidates if candidates else (None,)
+        for choice in choices:
+            if choice is None:
+                search(index + 1)
+                continue
+            event, candidate_entities = choice
+            previous_role = used_event_ids.get(event.event_id)
+            if previous_role is not None:
+                continue
+            conflicts = any(
+                entity_role in assigned_entities
+                and assigned_entities[entity_role] != entity_id
+                for entity_role, entity_id in candidate_entities.items()
+            )
+            if conflicts:
+                continue
+
+            newly_assigned = [
+                entity_role for entity_role in candidate_entities
+                if entity_role not in assigned_entities
+            ]
+            for entity_role in newly_assigned:
+                assigned_entities[entity_role] = candidate_entities[entity_role]
+            used_event_ids[event.event_id] = role_name
+            assignment.append((role_name, event))
+            search(index + 1)
+            assignment.pop()
+            del used_event_ids[event.event_id]
+            for entity_role in newly_assigned:
+                del assigned_entities[entity_role]
+
+    search(0)
+    if not solutions:
+        raise EvidenceSelectionError(
+            "no complete event-role assignment satisfies all registered participant constraints"
+        )
+    if len(solutions) > 1:
+        raise EvidenceSelectionError(
+            "event-role selection is ambiguous: multiple complete assignments satisfy "
+            "the registered event-type and participant constraints"
+        )
+    return ResolvedPropositionSelection(solutions[0])
 
 
 @dataclass(frozen=True, slots=True)
