@@ -84,7 +84,7 @@ class CriterionEvaluationEngine:
             )
         elif evaluator.evaluator_type == "event_type_count":
             finding = self._event_type_count(
-                criterion, parameters, events, event_refs
+                criterion, proposition, parameters, events, event_refs
             )
         elif evaluator.evaluator_type == "participant_role_matches_proposition_role":
             finding = self._participant_role_matches(
@@ -192,11 +192,52 @@ class CriterionEvaluationEngine:
     def _event_type_count(
         self,
         criterion: CriterionDefinition,
+        proposition: Proposition,
         parameters: dict,
         events: dict[str, Event],
         evidence: tuple[EvidenceReference, ...],
     ) -> CriterionFinding:
-        count = sum(event.event_type == parameters["event_type"] for event in events.values())
+        role_values = {item.role_name: item for item in proposition.roles}
+        entity_role = role_values.get(parameters["entity_role"])
+        if entity_role is None or entity_role.role_kind != "entity":
+            return self._insufficient(
+                criterion,
+                "The entity role required to scope the event count is unavailable.",
+                (f"A valid proposition entity role {parameters['entity_role']}",),
+                evidence,
+            )
+        proposition_event_ids = {
+            item.value_id for item in proposition.roles if item.role_kind == "event"
+        }
+        if not proposition_event_ids.issubset(events):
+            return self._insufficient(
+                criterion,
+                "The EvidenceSet does not contain every event that defines the proposition.",
+                ("Evidence for every proposition event role",),
+                evidence,
+            )
+
+        def within_scope(event: Event) -> bool:
+            scope = proposition.temporal_scope
+            after_start = (
+                event.occurred_at > scope.starts_at
+                or (scope.start_inclusive and event.occurred_at == scope.starts_at)
+            )
+            before_end = (
+                event.occurred_at < scope.ends_at
+                or (scope.end_inclusive and event.occurred_at == scope.ends_at)
+            )
+            return after_start and before_end
+
+        count = sum(
+            event.event_type == parameters["event_type"]
+            and within_scope(event)
+            and any(
+                participant.entity_id == entity_role.value_id
+                for participant in event.participants
+            )
+            for event in events.values()
+        )
         matched = count >= parameters["minimum_count"]
         return self._result(
             criterion,
