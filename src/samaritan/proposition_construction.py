@@ -31,7 +31,7 @@ from samaritan.proposition_validation import PropositionProvenanceValidator
 from samaritan.proposition_evidence_selection import (
     resolve_event_roles,
     resolve_entity_roles,
-    resolve_relationship,
+    resolve_parameter_values,
 )
 
 
@@ -242,95 +242,28 @@ class PropositionConstructor:
             for item in semantics.parameters
             if item.default_value is not None
         }
-        for binding in construction.event_attribute_bindings:
-            event = selected_events.get(binding.event_role)
-            if event is None:
-                if parameter_definitions[binding.parameter_name].required:
-                    raise PropositionConstructionError(
-                        f"required parameter {binding.parameter_name} depends on an absent optional event role"
-                    )
-                continue
-            attributes = json.loads(event.normalized_data_json)
-            if binding.attribute_name not in attributes:
-                raise PropositionConstructionError(
-                    f"registered event attribute is missing: {binding.attribute_name}"
-                )
-            value = attributes[binding.attribute_name]
-            definition = parameter_definitions[binding.parameter_name]
-            valid = (
-                isinstance(value, str) if definition.value_type == "string"
-                else type(value) is int if definition.value_type == "integer"
-                else type(value) is bool
+        relationships = (
+            self._load_relationships(selected_observations)
+            if construction.relationship_parameter_bindings else ()
+        )
+        try:
+            resolved_parameters = resolve_parameter_values(
+                semantics,
+                construction,
+                resolved_selection,
+                resolved_entities,
+                relationships,
             )
-            if not valid:
-                raise PropositionConstructionError(
-                    f"event attribute type mismatch for parameter {binding.parameter_name}"
-                )
-            parameter_values[binding.parameter_name] = value
-            provenance[binding.parameter_name] = PropositionFieldProvenance(
-                field_name=binding.parameter_name,
-                event_ids=(event.event_id,),
-                observation_ids=(event.observation_id,),
+        except ValueError as exc:
+            raise PropositionConstructionError(str(exc)) from exc
+        for item in resolved_parameters:
+            parameter_values[item.parameter_name] = item.value
+            provenance[item.parameter_name] = PropositionFieldProvenance(
+                field_name=item.parameter_name,
+                event_ids=item.event_ids,
+                observation_ids=item.observation_ids,
+                relationship_ids=item.relationship_ids,
             )
-
-        for binding in construction.temporal_parameter_bindings:
-            earlier = selected_events.get(binding.earlier_event_role)
-            later = selected_events.get(binding.later_event_role)
-            if earlier is None or later is None:
-                if parameter_definitions[binding.parameter_name].required:
-                    raise PropositionConstructionError(
-                        f"required parameter {binding.parameter_name} depends on an absent optional event role"
-                    )
-                continue
-            seconds = (later.occurred_at - earlier.occurred_at).total_seconds()
-            if seconds < 0 or not seconds.is_integer():
-                raise PropositionConstructionError(
-                    "temporal difference must be a non-negative whole number of seconds"
-                )
-            parameter_values[binding.parameter_name] = int(seconds)
-            provenance[binding.parameter_name] = PropositionFieldProvenance(
-                field_name=binding.parameter_name,
-                event_ids=(earlier.event_id, later.event_id),
-                observation_ids=tuple(dict.fromkeys((earlier.observation_id, later.observation_id))),
-            )
-
-        if construction.relationship_parameter_bindings:
-            relationships = self._load_relationships(selected_observations)
-            for binding in construction.relationship_parameter_bindings:
-                source_role = role_values.get(binding.source_entity_role)
-                target_role = role_values.get(binding.target_entity_role)
-                if source_role is None or target_role is None:
-                    if parameter_definitions[binding.parameter_name].required:
-                        raise PropositionConstructionError(
-                            f"required parameter {binding.parameter_name} depends on an absent optional entity role"
-                        )
-                    continue
-                source_id = source_role.value_id
-                target_id = target_role.value_id
-                try:
-                    relationship = resolve_relationship(
-                        relationships,
-                        binding,
-                        source_id,
-                        target_id,
-                        required=parameter_definitions[binding.parameter_name].required,
-                    )
-                except (TypeError, ValueError) as exc:
-                    raise PropositionConstructionError(str(exc)) from exc
-                if relationship is None:
-                    continue
-                if binding.relationship_field == "relationship_id":
-                    value = relationship.relationship_id
-                elif binding.relationship_field == "relationship_type":
-                    value = relationship.relationship_type
-                else:
-                    value = relationship.observed_at.isoformat()
-                parameter_values[binding.parameter_name] = value
-                provenance[binding.parameter_name] = PropositionFieldProvenance(
-                    field_name=binding.parameter_name,
-                    relationship_ids=(relationship.relationship_id,),
-                    observation_ids=(relationship.observation_id,),
-                )
 
         required_parameters = [
             item.parameter_name for item in semantics.parameters
