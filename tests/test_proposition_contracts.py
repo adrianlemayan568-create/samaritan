@@ -4,8 +4,10 @@ from uuid import uuid4
 
 import pytest
 
+from samaritan.analysis_contracts import EvidenceReference
 from samaritan.proposition_contracts import (
     Proposition,
+    PropositionEvidenceManifest,
     PropositionFieldProvenance,
     PropositionRoleValue,
     PropositionTemporalScope,
@@ -53,6 +55,10 @@ def make_proposition():
         construction_version=1,
         semantics_fingerprint=semantics_fingerprint,
         identity_algorithm_version="uuid5-v2",
+        evidence_manifest=PropositionEvidenceManifest(
+            evidence_set_id=str(uuid4()),
+            evidence=tuple(EvidenceReference(event_id=event_id) for event_id in events),
+        ),
     )
 
 
@@ -77,6 +83,7 @@ def test_proposition_identity_is_deterministic_and_ignores_construction_history(
         construction_version=9,
         semantics_fingerprint=proposition.semantics_fingerprint,
         identity_algorithm_version=proposition.identity_algorithm_version,
+        evidence_manifest=proposition.evidence_manifest,
     )
     assert same_identity.proposition_id == proposition.proposition_id
 
@@ -98,6 +105,7 @@ def test_temporal_scope_must_match_semantic_boundaries():
         construction_version=1,
         semantics_fingerprint=proposition.semantics_fingerprint,
         identity_algorithm_version=proposition.identity_algorithm_version,
+        evidence_manifest=proposition.evidence_manifest,
     )
     semantics = build_default_proposition_semantics_registry().get(
         "account_authentication_sequence", 1
@@ -154,6 +162,7 @@ def test_every_role_requires_field_level_provenance():
             construction_version=1,
             semantics_fingerprint=proposition.semantics_fingerprint,
             identity_algorithm_version=proposition.identity_algorithm_version,
+            evidence_manifest=proposition.evidence_manifest,
         )
 
 def test_proposition_identity_must_match_semantic_content():
