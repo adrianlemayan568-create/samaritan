@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import json
 import uuid
-
-from samaritan.analysis_contracts import EvidenceReference
 from dataclasses import dataclass
+from samaritan.analysis_contracts import EvidenceReference
 from datetime import datetime
 
 from samaritan.contracts import SCHEMA_VERSION, normalize_timestamp, validate_id, validate_json_object, validate_text
