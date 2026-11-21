@@ -374,6 +374,11 @@ def test_hypothesis_evaluation_engine_runs_findings_and_synthesis_end_to_end(tmp
     assert record.findings[0].status == "matched"
     assert record.synthesis.outcome == "supported"
 
+    mismatched_evidence = replace(evidence_set, evidence=())
+    import pytest
+    with pytest.raises(ValueError, match="must exactly match the focal proposition evidence manifest"):
+        engine.evaluate(specification, mismatched_evidence)
+
     incomplete_rule = replace(
         rule,
         bearing_definitions=tuple(
