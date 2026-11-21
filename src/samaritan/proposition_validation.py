@@ -10,7 +10,6 @@ from samaritan.proposition_contracts import Proposition
 from samaritan.proposition_semantics import PropositionSemanticsRegistry
 from samaritan.repository import Repository
 from samaritan.proposition_evidence_selection import (
-    EvidenceSelectionError,
     resolve_event_roles,
     resolve_entity_roles,
     resolve_relationship,
