@@ -1467,6 +1467,41 @@ def test_proposition_preserves_exact_immutable_evidence_selection_manifest(tmp_p
         proposition.evidence_manifest.evidence_set_id = new_id()
 
 
+def test_overlapping_observation_and_event_references_are_preserved_without_duplicate_events(tmp_path):
+    repository, source, start = make_repository(tmp_path)
+    account = Entity(
+        entity_id=new_id(), entity_type="user_account",
+        canonical_identifier="overlapping-manifest", created_at=start,
+    )
+    events, evidence_set = _make_authentication_evidence(
+        repository, source, account, start
+    )
+    overlapping_references = (
+        EvidenceReference(observation_id=events[0].observation_id),
+        EvidenceReference(event_id=events[0].event_id),
+        *(
+            EvidenceReference(event_id=item.event_id)
+            for item in events[1:]
+        ),
+    )
+    evidence_set = replace(
+        evidence_set,
+        evidence=overlapping_references,
+    )
+
+    proposition = make_constructor(repository).construct(
+        evidence_set, "account_authentication_sequence", 1
+    )
+
+    assert proposition.evidence_manifest.evidence == overlapping_references
+    assert proposition.evidence_manifest.evidence[0].observation_id == events[0].observation_id
+    assert proposition.evidence_manifest.evidence[1].event_id == events[0].event_id
+    assert tuple(
+        item.value_id for item in proposition.roles
+        if item.role_kind == "event"
+    ) == tuple(item.event_id for item in events)
+
+
 def test_validator_rejects_field_provenance_outside_evidence_manifest(tmp_path):
     repository, source, start = make_repository(tmp_path)
     account = Entity(
