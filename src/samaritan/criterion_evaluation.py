@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+import uuid
 from datetime import datetime, timezone
+from typing import Callable
 
 from samaritan.analysis_contracts import EvidenceReference
-from samaritan.contracts import Event, Observation, new_id
+from samaritan.contracts import Event, Observation, normalize_timestamp
 from samaritan.database import DatabaseIntegrityError
 from samaritan.evaluation_contracts import EvidenceSet
 from samaritan.reasoning_contracts import (
@@ -31,6 +33,7 @@ class CriterionEvaluationEngine:
         repository: Repository,
         evaluator_registry: CriterionEvaluatorRegistry,
         outcome_registry: CriterionOutcomeRegistry,
+        clock: Callable[[], datetime] | None = None,
     ) -> None:
         if not isinstance(repository, Repository):
             raise TypeError("repository must be a Repository")
@@ -41,6 +44,9 @@ class CriterionEvaluationEngine:
         self.repository = repository
         self.evaluator_registry = evaluator_registry
         self.outcome_registry = outcome_registry
+        if clock is not None and not callable(clock):
+            raise TypeError("clock must be callable")
+        self.clock = clock or (lambda: datetime.now(timezone.utc))
 
     def evaluate(
         self,
@@ -359,14 +365,21 @@ class CriterionEvaluationEngine:
         evidence: tuple[EvidenceReference, ...],
         rationale: str,
     ) -> CriterionFinding:
+        canonical_evidence = tuple(sorted(
+            set(evidence),
+            key=lambda item: (item.observation_id or "", item.event_id or ""),
+        ))
+        finding_id = self._deterministic_finding_id(
+            criterion, "insufficient", None, canonical_evidence
+        )
         return CriterionFinding(
-            finding_id=new_id(),
+            finding_id=finding_id,
             criterion_id=criterion.criterion_id,
             status=status,
             outcome_code=outcome_code,
-            evidence=tuple(dict.fromkeys(evidence)),
+            evidence=canonical_evidence,
             rationale=rationale,
-            created_at=datetime.now(timezone.utc),
+            created_at=normalize_timestamp(self.clock(), "clock timestamp"),
         )
 
     def _insufficient(
@@ -376,16 +389,52 @@ class CriterionEvaluationEngine:
         missing_information: tuple[str, ...],
         evidence: tuple[EvidenceReference, ...] = (),
     ) -> CriterionFinding:
+        canonical_evidence = tuple(sorted(
+            set(evidence),
+            key=lambda item: (item.observation_id or "", item.event_id or ""),
+        ))
+        finding_id = self._deterministic_finding_id(
+            criterion, status, outcome_code, canonical_evidence
+        )
         return CriterionFinding(
-            finding_id=new_id(),
+            finding_id=finding_id,
             criterion_id=criterion.criterion_id,
             status="insufficient",
             outcome_code=None,
-            evidence=tuple(dict.fromkeys(evidence)),
+            evidence=canonical_evidence,
             rationale=rationale,
             missing_information=missing_information,
-            created_at=datetime.now(timezone.utc),
+            created_at=normalize_timestamp(self.clock(), "clock timestamp"),
         )
+
+    @staticmethod
+    def _deterministic_finding_id(
+        criterion: CriterionDefinition,
+        status: str,
+        outcome_code: str | None,
+        evidence: tuple[EvidenceReference, ...],
+    ) -> str:
+        payload = json.dumps(
+            {
+                "criterion_id": criterion.criterion_id,
+                "criterion_type": criterion.criterion_type,
+                "evaluator_version": criterion.evaluator_version,
+                "parameters": json.loads(criterion.parameters_json),
+                "status": status,
+                "outcome_code": outcome_code,
+                "evidence": [
+                    {"observation_id": item.observation_id, "event_id": item.event_id}
+                    for item in evidence
+                ],
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        )
+        return str(uuid.uuid5(
+            uuid.NAMESPACE_URL,
+            "samaritan:criterion-finding:v1:" + payload,
+        ))
 
     def _resolve_evidence(
         self,
