@@ -761,3 +761,56 @@ def test_hypothesis_specification_rejects_alternative_with_different_fingerprint
             alternatives=(mismatched_alternative,),
             evaluation_rule=specification.evaluation_rule,
         )
+
+
+def test_rule_registry_allows_multiple_immutable_versions_of_one_rule_identity():
+    specification, _, _ = make_specification()
+    first = specification.evaluation_rule
+    second = replace(first, rule_version=first.rule_version + 1)
+    registry = HypothesisEvaluationRuleRegistry()
+
+    registry.register(first)
+    registry.register(second)
+
+    assert registry.get(first.evaluation_rule_id, first.rule_version) is first
+    assert registry.get(second.evaluation_rule_id, second.rule_version) is second
+
+
+def test_residual_bearing_must_share_focal_judgment_with_declared_alternative():
+    specification, _, _ = make_specification()
+    rule = specification.evaluation_rule
+    residual = rule.bearing_definitions[1]
+    forged_residual = replace(residual, focal_judgment="incompatible")
+
+    with pytest.raises(ValueError, match="focal judgment must be consistent"):
+        replace(
+            rule,
+            bearing_definitions=(rule.bearing_definitions[0], forged_residual),
+        )
+
+
+def test_evaluation_record_rejects_empty_findings_with_supported_high_synthesis():
+    specification, _, _ = make_specification()
+    outcomes = CriterionOutcomeRegistry()
+    inconclusive = DiagnosticitySynthesizer().synthesize(
+        specification, (), outcomes, production=False
+    )
+    forged_synthesis = replace(
+        inconclusive,
+        outcome="supported",
+        confidence_ceiling="high",
+    )
+    record = HypothesisEvaluationRecord(
+        evaluation_id=str(uuid4()),
+        hypothesis_id=specification.hypothesis.hypothesis_id,
+        evaluation_rule_id=specification.evaluation_rule.evaluation_rule_id,
+        evaluation_rule_version=specification.evaluation_rule.rule_version,
+        evidence_set_id=str(uuid4()),
+        assessment_id=str(uuid4()),
+        evaluated_at=datetime.now(timezone.utc),
+        findings=(),
+        synthesis=forged_synthesis,
+    )
+
+    with pytest.raises(ValueError, match="high confidence ceiling"):
+        record.validate_against(specification)
