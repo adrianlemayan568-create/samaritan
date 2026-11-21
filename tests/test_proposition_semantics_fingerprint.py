@@ -424,7 +424,7 @@ def test_fingerprint_rejects_non_semantics_input():
 def test_semantics_rejects_non_nfc_role_identifiers_before_fingerprinting():
     with pytest.raises(ValueError, match="Unicode NFC normalized"):
         PropositionRoleDefinition(
-            role_name="Cafe\\u0301",
+            role_name="Cafe\u0301",
             role_kind="event",
             cardinality="one",
             event_type="authentication_failure",
