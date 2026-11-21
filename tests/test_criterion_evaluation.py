@@ -351,9 +351,20 @@ def test_hypothesis_evaluation_engine_runs_findings_and_synthesis_end_to_end(tmp
         alternatives=(alternative,),
         evaluation_rule=rule,
     )
-    record = HypothesisEvaluationEngine(
-        repository, evaluators, outcomes, semantics_registry=semantics_registry
-    ).evaluate(specification, evidence_set)
+    fixed_time = datetime(2026, 11, 21, 12, 0, tzinfo=timezone.utc)
+    engine = HypothesisEvaluationEngine(
+        repository,
+        evaluators,
+        outcomes,
+        semantics_registry=semantics_registry,
+        clock=lambda: fixed_time,
+    )
+    record = engine.evaluate(specification, evidence_set)
+    repeated = engine.evaluate(specification, evidence_set)
+    assert record.evaluation_id == repeated.evaluation_id
+    assert record.assessment_id == repeated.assessment_id
+    assert record.evaluated_at == repeated.evaluated_at == fixed_time
+    assert record.findings[0].finding_id == repeated.findings[0].finding_id
     assert record.evaluation_rule_id == rule.evaluation_rule_id
     assert record.evidence_set_id == evidence_set.evidence_set_id
     assert record.findings[0].status == "matched"
