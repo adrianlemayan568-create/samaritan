@@ -490,7 +490,7 @@ class HypothesisEvaluationRule:
             previous = focal_judgments.setdefault(key, bearing.focal_judgment)
             if previous != bearing.focal_judgment:
                 raise ValueError(
-                    "focal judgment must be consistent across declared alternatives "
+                    "focal judgment must be consistent across all bearing alternatives "
                     "for each criterion outcome"
                 )
         keys = tuple((item.criterion_id, item.outcome_code, item.alternative_id) for item in self.bearing_definitions)
