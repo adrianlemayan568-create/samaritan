@@ -127,7 +127,7 @@ def resolve_relationship(
     )
     if len(matches) > 1:
         raise EvidenceSelectionError(
-            f"expected at most one relationship of type {binding.relationship_type}; found {len(matches)}"
+            f"expected exactly one relationship of type {binding.relationship_type}; found {len(matches)}"
         )
     if not matches:
         if required:
