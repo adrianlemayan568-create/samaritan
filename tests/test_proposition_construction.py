@@ -509,7 +509,7 @@ def test_relationship_parameter_binding_requires_selected_observation_and_preser
     )
     with pytest.raises(
         PropositionProvenanceError,
-        match="relationship provenance does not match its registered binding",
+        match="relationship binding is omitted or does not match",
     ):
         PropositionProvenanceValidator(
             repository,
@@ -524,6 +524,37 @@ def test_relationship_parameter_binding_requires_selected_observation_and_preser
     }["account_device_relationship_id"]
     assert provenance.relationship_ids == (relationship.relationship_id,)
     assert provenance.observation_ids == (observation.observation_id,)
+
+    second_observation = Observation(
+        observation_id=new_id(),
+        source_id=source.source_id,
+        received_at=host_time + timedelta(seconds=10),
+        raw_payload="{}",
+        payload_sha256=payload_checksum("{}"),
+    )
+    second_relationship = Relationship(
+        relationship_id=new_id(),
+        source_entity_id=account.entity_id,
+        target_entity_id=device.entity_id,
+        relationship_type="account_uses_device",
+        observation_id=second_observation.observation_id,
+        observed_at=host_time + timedelta(seconds=10),
+    )
+    repository.persist_observation(
+        second_observation, relationships=(second_relationship,)
+    )
+    expanded_manifest = replace(
+        proposition,
+        evidence_manifest=replace(
+            proposition.evidence_manifest,
+            evidence=proposition.evidence_manifest.evidence
+            + (EvidenceReference(observation_id=second_observation.observation_id),),
+        ),
+    )
+    with pytest.raises(PropositionProvenanceError, match="expected at most one relationship"):
+        PropositionProvenanceValidator(
+            repository, semantics_registry, construction_registry
+        ).validate(expanded_manifest)
 
 
 def _make_authentication_evidence(
