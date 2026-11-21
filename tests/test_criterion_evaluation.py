@@ -136,6 +136,7 @@ def make_evaluation_context(tmp_path):
         evidence=(EvidenceReference(event_id=event.event_id),),
         created_at=now,
     )
+    repository.persist_evidence_set(evidence_set)
     return repository, proposition, evidence_set, event, semantics_registry
 
 
@@ -206,7 +207,7 @@ def test_evaluator_registry_rejects_arbitrary_evaluator_callbacks():
 
 
 
-def test_hypothesis_evaluation_engine_runs_findings_and_synthesis_end_to_end(tmp_path):
+def test_hypothesis_evaluation_engine_runs_findings_and_synthesis_end_to_end(tmp_path, monkeypatch):
     repository, proposition, evidence_set, event, semantics_registry = make_evaluation_context(tmp_path)
     parameter_definitions = (
         CriterionParameterDefinition("event_role", "string", required=True),
@@ -450,6 +451,13 @@ def test_hypothesis_evaluation_engine_runs_findings_and_synthesis_end_to_end(tmp
     )
     with pytest.raises(ValueError, match="current fingerprint-bound proposition identity"):
         engine.evaluate(legacy_specification, evidence_set)
+
+    monkeypatch.setattr(repository, "get_evidence_set", lambda _evidence_set_id: None)
+    with pytest.raises(
+        ValueError,
+        match="persisted historical selection",
+    ):
+        engine.evaluate(specification, evidence_set)
 
 
 
