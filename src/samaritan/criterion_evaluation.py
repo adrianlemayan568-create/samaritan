@@ -449,7 +449,7 @@ class CriterionEvaluationEngine:
                 event = self.repository.get_event(reference.event_id)
                 if event is None:
                     raise DatabaseIntegrityError(f"referenced event does not exist: {reference.event_id}")
-                if not isinstance(event, Event) or event.event_id != reference.event_id:
+                if not type(event) is Event or event.event_id != reference.event_id:
                     raise DatabaseIntegrityError("repository returned an invalid or mismatched event")
                 events[event.event_id] = event
                 self._load_observation(event.observation_id, observations)
@@ -463,7 +463,7 @@ class CriterionEvaluationEngine:
                         offset=offset,
                     )
                     if not isinstance(related, tuple) or not all(
-                        isinstance(item, Event) for item in related
+                        type(item) is Event for item in related
                     ):
                         raise DatabaseIntegrityError("repository returned invalid events for an observation")
                     for event in related:
@@ -485,7 +485,7 @@ class CriterionEvaluationEngine:
             observation = self.repository.get_observation(observation_id)
             if observation is None:
                 raise DatabaseIntegrityError(f"referenced observation does not exist: {observation_id}")
-            if not isinstance(observation, Observation) or observation.observation_id != observation_id:
+            if not type(observation) is Observation or observation.observation_id != observation_id:
                 raise DatabaseIntegrityError("repository returned an invalid or mismatched observation")
             cache[observation_id] = observation
         return observation
