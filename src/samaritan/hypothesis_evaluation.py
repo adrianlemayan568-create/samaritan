@@ -15,6 +15,7 @@ from samaritan.reasoning_contracts import (
     CriterionEvaluatorRegistry,
     CriterionOutcomeRegistry,
     HypothesisEvaluationRecord,
+    HypothesisEvaluationRuleRegistry,
     HypothesisSpecification,
 )
 from samaritan.repository import Repository
@@ -41,11 +42,14 @@ class HypothesisEvaluationEngine:
         repository: Repository,
         evaluator_registry: CriterionEvaluatorRegistry,
         outcome_registry: CriterionOutcomeRegistry,
+        rule_registry: HypothesisEvaluationRuleRegistry,
         semantics_registry: PropositionSemanticsRegistry | None = None,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         if clock is not None and not callable(clock):
             raise TypeError("clock must be callable")
+        if type(rule_registry) is not HypothesisEvaluationRuleRegistry:
+            raise TypeError("rule_registry must be a HypothesisEvaluationRuleRegistry")
         if semantics_registry is None:
             semantics_registry = build_default_proposition_semantics_registry()
         if type(semantics_registry) is not PropositionSemanticsRegistry:
@@ -61,6 +65,8 @@ class HypothesisEvaluationEngine:
         semantics_registry.freeze()
         self.semantics_registry = semantics_registry
         self.outcome_registry = outcome_registry
+        rule_registry.freeze()
+        self.rule_registry = rule_registry
         self.synthesizer = DiagnosticitySynthesizer()
 
     def evaluate(
@@ -115,7 +121,20 @@ class HypothesisEvaluationEngine:
             )
             proposition.validate_against(semantics)
 
-        rule = specification.evaluation_rule
+        supplied_rule = specification.evaluation_rule
+        try:
+            registered_rule = self.rule_registry.get(
+                supplied_rule.evaluation_rule_id, supplied_rule.rule_version
+            )
+        except KeyError as exc:
+            raise ValueError(
+                "evaluation rule version is not registered"
+            ) from exc
+        if supplied_rule != registered_rule:
+            raise ValueError(
+                "supplied evaluation rule does not match its registered immutable definition"
+            )
+        rule = registered_rule
         rule.validate_outcome_coverage(
             self.criterion_engine.evaluator_registry,
             self.outcome_registry,
@@ -142,6 +161,11 @@ class HypothesisEvaluationEngine:
         identity_payload = json.dumps(
             {
                 "hypothesis_id": specification.hypothesis.hypothesis_id,
+                "focal_proposition_id": focal_proposition.proposition_id,
+                "alternative_proposition_ids": sorted(
+                    item.proposition.proposition_id
+                    for item in specification.alternatives
+                ),
                 "evaluation_rule_id": rule.evaluation_rule_id,
                 "evaluation_rule_version": rule.rule_version,
                 "evidence_set_id": evidence_set.evidence_set_id,
