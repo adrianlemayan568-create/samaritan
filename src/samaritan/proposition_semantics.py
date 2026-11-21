@@ -466,7 +466,7 @@ class PropositionSemanticsRegistry:
         proposition_type: str,
         semantics_version: int,
     ) -> PropositionSemantics:
-        proposition_type = validate_text(proposition_type, "proposition_type")
+        proposition_type = validate_identifier(proposition_type, "proposition_type")
 
         if type(semantics_version) is not int:
             raise TypeError("semantics_version must be an integer")
