@@ -35,11 +35,11 @@ class CriterionEvaluationEngine:
         outcome_registry: CriterionOutcomeRegistry,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
-        if not isinstance(repository, Repository):
+        if type(repository) is not Repository:
             raise TypeError("repository must be a Repository")
-        if not isinstance(evaluator_registry, CriterionEvaluatorRegistry):
+        if type(evaluator_registry) is not CriterionEvaluatorRegistry:
             raise TypeError("evaluator_registry must be a CriterionEvaluatorRegistry")
-        if not isinstance(outcome_registry, CriterionOutcomeRegistry):
+        if type(outcome_registry) is not CriterionOutcomeRegistry:
             raise TypeError("outcome_registry must be a CriterionOutcomeRegistry")
         evaluator_registry.freeze()
         outcome_registry.freeze()
@@ -57,9 +57,9 @@ class CriterionEvaluationEngine:
         evidence_set: EvidenceSet,
     ) -> CriterionFinding:
         """Produce a stance-neutral finding from registered evidence and evaluator types."""
-        if not isinstance(criterion, CriterionDefinition):
+        if type(criterion) is not CriterionDefinition:
             raise TypeError("criterion must be a CriterionDefinition")
-        if not isinstance(proposition, Proposition):
+        if type(proposition) is not Proposition:
             raise TypeError("proposition must be a Proposition")
         if not isinstance(evidence_set, EvidenceSet):
             raise TypeError("evidence_set must be an EvidenceSet")
