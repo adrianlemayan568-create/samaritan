@@ -838,3 +838,40 @@ def test_temporal_constraint_requires_integer_interval_limit():
             "second",
             max_interval_seconds=1.5,
         )
+
+
+@pytest.mark.parametrize(
+    "identifier",
+    ["bad\\nname", "bad\\x00name", "name@version", "a" * 129, "аccount"],
+)
+def test_semantics_rejects_hostile_or_ambiguous_identifiers(identifier):
+    with pytest.raises(ValueError):
+        make_semantics(proposition_type=identifier)
+
+
+def test_semantics_registry_can_be_frozen_and_exposes_read_only_definitions():
+    registry = PropositionSemanticsRegistry()
+    definition = make_semantics()
+    registry.register(definition)
+    registry.freeze()
+
+    assert registry.get(definition.proposition_type, definition.semantics_version) is definition
+    with pytest.raises(RuntimeError, match="frozen"):
+        registry.register(make_semantics(semantics_version=2))
+    with pytest.raises(TypeError):
+        registry.definitions[(definition.proposition_type, 2)] = make_semantics(semantics_version=2)
+
+
+def test_semantics_rejects_unvalidated_role_definition_subclasses():
+    class ExtendedRoleDefinition(PropositionRoleDefinition):
+        pass
+
+    role = ExtendedRoleDefinition(
+        role_name="event",
+        role_kind="event",
+        cardinality="one",
+        event_type="authentication_failure",
+        meaning="A test role.",
+    )
+    with pytest.raises(TypeError, match="PropositionRoleDefinition"):
+        make_semantics(roles=(role,))
