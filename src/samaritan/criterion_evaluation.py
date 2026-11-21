@@ -370,7 +370,7 @@ class CriterionEvaluationEngine:
             key=lambda item: (item.observation_id or "", item.event_id or ""),
         ))
         finding_id = self._deterministic_finding_id(
-            criterion, "insufficient", None, canonical_evidence
+            criterion, status, outcome_code, canonical_evidence
         )
         return CriterionFinding(
             finding_id=finding_id,
@@ -394,7 +394,7 @@ class CriterionEvaluationEngine:
             key=lambda item: (item.observation_id or "", item.event_id or ""),
         ))
         finding_id = self._deterministic_finding_id(
-            criterion, status, outcome_code, canonical_evidence
+            criterion, "insufficient", None, canonical_evidence
         )
         return CriterionFinding(
             finding_id=finding_id,
