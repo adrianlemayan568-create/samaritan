@@ -1,4 +1,6 @@
 from dataclasses import replace
+
+import pytest
 from datetime import datetime, timedelta, timezone
 
 from samaritan.analysis_contracts import EvidenceReference
@@ -384,6 +386,17 @@ def test_hypothesis_evaluation_engine_runs_findings_and_synthesis_end_to_end(tmp
     )
     with pytest.raises(ValueError, match="does not match its registered immutable definition"):
         engine.evaluate(altered_specification, evidence_set)
+
+    empty_rule_registry_engine = HypothesisEvaluationEngine(
+        repository,
+        evaluators,
+        outcomes,
+        HypothesisEvaluationRuleRegistry(),
+        semantics_registry=semantics_registry,
+        clock=lambda: fixed_time,
+    )
+    with pytest.raises(ValueError, match="evaluation rule version is not registered"):
+        empty_rule_registry_engine.evaluate(specification, evidence_set)
 
     mismatched_evidence = replace(evidence_set, evidence=())
     import pytest
