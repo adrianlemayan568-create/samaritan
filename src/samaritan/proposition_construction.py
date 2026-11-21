@@ -173,7 +173,7 @@ class PropositionConstructor:
             raise PropositionConstructionError(str(exc)) from exc
         participant_entity_ids = {item.entity_id for item in resolved_entities}
         entities = self.repository.get_entities_by_ids(tuple(sorted(participant_entity_ids)))
-        if not isinstance(entities, tuple) or not all(isinstance(item, Entity) for item in entities):
+        if not isinstance(entities, tuple) or not all(type(item) is Entity for item in entities):
             raise DatabaseIntegrityError("repository returned invalid entity records")
         entities_by_id = {item.entity_id: item for item in entities}
         for resolved_entity in resolved_entities:
@@ -434,7 +434,7 @@ class PropositionConstructor:
                     raise DatabaseIntegrityError(
                         f"referenced event does not exist: {reference.event_id}"
                     )
-                if not isinstance(event, Event) or event.event_id != reference.event_id:
+                if not type(event) is Event or event.event_id != reference.event_id:
                     raise DatabaseIntegrityError("repository returned an invalid or mismatched event")
                 events[event.event_id] = event
                 self._load_observation(event.observation_id, observations)
@@ -449,7 +449,7 @@ class PropositionConstructor:
                         offset=offset,
                     )
                     if not isinstance(related_events, tuple) or not all(
-                        isinstance(item, Event) for item in related_events
+                        type(item) is Event for item in related_events
                     ):
                         raise DatabaseIntegrityError("repository returned invalid events for an observation")
                     for event in related_events:
@@ -473,7 +473,7 @@ class PropositionConstructor:
                 raise DatabaseIntegrityError(
                     f"referenced observation does not exist: {observation_id}"
                 )
-            if not isinstance(observation, Observation) or observation.observation_id != observation_id:
+            if not type(observation) is Observation or observation.observation_id != observation_id:
                 raise DatabaseIntegrityError("repository returned an invalid or mismatched observation")
             cache[observation_id] = observation
         return observation
