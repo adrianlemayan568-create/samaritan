@@ -221,7 +221,9 @@ _EVIDENCE_SET_SCHEMA_STATEMENTS = (
         evidence_set_id TEXT PRIMARY KEY NOT NULL,
         created_at TEXT NOT NULL,
         schema_version INTEGER NOT NULL
-            CHECK (schema_version = 1)
+            CHECK (schema_version = 1),
+        is_sealed INTEGER NOT NULL
+            CHECK (is_sealed IN (0, 1))
     )
     """,
     """
@@ -264,6 +266,59 @@ _EVIDENCE_SET_SCHEMA_STATEMENTS = (
     CREATE UNIQUE INDEX idx_evidence_set_items_event
     ON evidence_set_items(evidence_set_id, event_id)
     WHERE event_id IS NOT NULL
+    """,
+    """
+    CREATE TRIGGER trg_evidence_set_items_insert_unsealed_only
+    BEFORE INSERT ON evidence_set_items
+    WHEN COALESCE(
+        (SELECT is_sealed FROM evidence_sets
+         WHERE evidence_set_id = NEW.evidence_set_id),
+        1
+    ) != 0
+    BEGIN
+        SELECT RAISE(ABORT, 'evidence set is already sealed');
+    END
+    """,
+    """
+    CREATE TRIGGER trg_evidence_set_items_no_update
+    BEFORE UPDATE ON evidence_set_items
+    BEGIN
+        SELECT RAISE(ABORT, 'evidence set items are immutable');
+    END
+    """,
+    """
+    CREATE TRIGGER trg_evidence_set_items_no_delete
+    BEFORE DELETE ON evidence_set_items
+    BEGIN
+        SELECT RAISE(ABORT, 'evidence set items are immutable');
+    END
+    """,
+    """
+    CREATE TRIGGER trg_evidence_sets_seal_once
+    BEFORE UPDATE ON evidence_sets
+    WHEN OLD.is_sealed != 0
+      OR NEW.is_sealed != 1
+      OR NEW.evidence_set_id != OLD.evidence_set_id
+      OR NEW.created_at != OLD.created_at
+      OR NEW.schema_version != OLD.schema_version
+      OR EXISTS (
+          SELECT 1
+          FROM evidence_set_items
+          WHERE evidence_set_id = OLD.evidence_set_id
+          GROUP BY evidence_set_id
+          HAVING MIN(item_index) != 0
+             OR MAX(item_index) != COUNT(*) - 1
+      )
+    BEGIN
+        SELECT RAISE(ABORT, 'evidence sets are immutable');
+    END
+    """,
+    """
+    CREATE TRIGGER trg_evidence_sets_no_delete
+    BEFORE DELETE ON evidence_sets
+    BEGIN
+        SELECT RAISE(ABORT, 'evidence sets are immutable');
+    END
     """,
 )
 
@@ -330,6 +385,7 @@ _EXPECTED_COLUMNS = {
         ("evidence_set_id", "TEXT", 1, 1),
         ("created_at", "TEXT", 1, 0),
         ("schema_version", "INTEGER", 1, 0),
+        ("is_sealed", "INTEGER", 1, 0),
     ),
     "evidence_set_items": (
         ("evidence_set_id", "TEXT", 1, 1),
@@ -662,6 +718,14 @@ class Database:
         if not identity_constraint_found:
             raise DatabaseIntegrityError(
                 "entity identity uniqueness constraint is missing"
+            )
+
+        unsealed_evidence_sets = connection.execute(
+            "SELECT COUNT(*) FROM evidence_sets WHERE is_sealed != 1"
+        ).fetchone()[0]
+        if unsealed_evidence_sets:
+            raise DatabaseIntegrityError(
+                "database contains unsealed evidence set records"
             )
 
         integrity_results = connection.execute(
