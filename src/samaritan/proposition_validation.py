@@ -33,11 +33,11 @@ class PropositionProvenanceValidator:
         semantics_registry: PropositionSemanticsRegistry,
         construction_registry: PropositionConstructionRegistry,
     ) -> None:
-        if not isinstance(repository, Repository):
+        if type(repository) is not Repository:
             raise TypeError("repository must be a Repository")
-        if not isinstance(semantics_registry, PropositionSemanticsRegistry):
+        if type(semantics_registry) is not PropositionSemanticsRegistry:
             raise TypeError("semantics_registry must be a PropositionSemanticsRegistry")
-        if not isinstance(construction_registry, PropositionConstructionRegistry):
+        if type(construction_registry) is not PropositionConstructionRegistry:
             raise TypeError("construction_registry must be a PropositionConstructionRegistry")
         self.repository = repository
         self.semantics_registry = semantics_registry
@@ -45,7 +45,7 @@ class PropositionProvenanceValidator:
 
     def validate(self, proposition: Proposition) -> None:
         """Raise when any claimed field provenance is not supported by stored records."""
-        if not isinstance(proposition, Proposition):
+        if type(proposition) is not Proposition:
             raise TypeError("proposition must be a Proposition")
 
         construction = self.construction_registry.get(
