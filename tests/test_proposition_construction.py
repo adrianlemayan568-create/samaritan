@@ -1726,3 +1726,21 @@ def test_constructor_rejects_one_event_bound_to_multiple_semantic_roles(tmp_path
         constructor.construct(
             evidence_set, "account_authentication_sequence", 1
         )
+
+
+def test_constructor_freezes_semantics_and_construction_registries(tmp_path):
+    repository, _, _ = make_repository(tmp_path)
+    constructor = make_constructor(repository)
+
+    with pytest.raises(RuntimeError, match="registry is frozen"):
+        constructor.semantics_registry.register(
+            build_default_proposition_semantics_registry().get(
+                "account_authentication_sequence", 1
+            )
+        )
+    with pytest.raises(RuntimeError, match="registry is frozen"):
+        constructor.construction_registry.register(
+            build_default_proposition_construction_registry().get(
+                "account_authentication_sequence", 1
+            )
+        )
