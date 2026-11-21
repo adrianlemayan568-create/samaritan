@@ -33,7 +33,7 @@ class ResolvedPropositionSelection:
         names = tuple(name for name, _ in self.event_roles)
         if len(names) != len(set(names)):
             raise ValueError("resolved event role names must be unique")
-        if not all(isinstance(event, Event) for _, event in self.event_roles):
+        if not all(type(event) is Event for _, event in self.event_roles):
             raise TypeError("resolved event roles must contain Event records")
 
     def event_for(self, role_name: str) -> Event | None:
@@ -46,9 +46,9 @@ def resolve_event_roles(
     selected_events: tuple[Event, ...],
 ) -> ResolvedPropositionSelection:
     """Resolve every registered event role from the manifest's selected events."""
-    if not isinstance(semantics, PropositionSemantics):
+    if not type(semantics) is PropositionSemantics:
         raise TypeError("semantics must be PropositionSemantics")
-    if not isinstance(construction, PropositionConstructionDefinition):
+    if not type(construction) is PropositionConstructionDefinition:
         raise TypeError("construction must be PropositionConstructionDefinition")
     if not isinstance(selected_events, tuple) or not all(
         isinstance(event, Event) for event in selected_events
@@ -120,7 +120,7 @@ def resolve_entity_roles(
     event_selection: ResolvedPropositionSelection,
 ) -> tuple[ResolvedEntityRole, ...]:
     """Resolve entity roles from the selected event roles and registered participants."""
-    if not isinstance(event_selection, ResolvedPropositionSelection):
+    if not type(event_selection) is ResolvedPropositionSelection:
         raise TypeError("event_selection must be ResolvedPropositionSelection")
     semantic_roles = {item.role_name: item for item in semantics.roles}
     selected_events = dict(event_selection.event_roles)
@@ -186,7 +186,7 @@ def resolve_relationship(
         isinstance(item, Relationship) for item in relationships
     ):
         raise TypeError("relationships must be a tuple of Relationship records")
-    if not isinstance(binding, RelationshipParameterBinding):
+    if not type(binding) is RelationshipParameterBinding:
         raise TypeError("binding must be RelationshipParameterBinding")
     matches = tuple(
         item for item in relationships
