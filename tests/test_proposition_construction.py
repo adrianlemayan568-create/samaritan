@@ -1,5 +1,5 @@
-from dataclasses import replace
 import sqlite3
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -1757,12 +1757,16 @@ def _repository_failure(failure):
         )
     if failure == "attribute_error":
         return AttributeError("simulated malformed repository record")
+    if failure == "type_error":
+        return TypeError("simulated malformed repository result")
+    if failure == "missing_record":
+        return None
     raise AssertionError(f"unknown failure case: {failure}")
 
 
 @pytest.mark.parametrize(
     "failure",
-    ["key_error", "sqlite_error", "unicode_error", "attribute_error"],
+    ["key_error", "sqlite_error", "unicode_error", "attribute_error", "type_error", "missing_record"],
 )
 def test_constructor_normalizes_expected_repository_boundary_failures(
     tmp_path, monkeypatch, failure
@@ -1795,6 +1799,8 @@ def test_constructor_normalizes_expected_repository_boundary_failures(
     original_error = _repository_failure(failure)
 
     def fail_get_event(_event_id):
+        if original_error is None:
+            return None
         raise original_error
 
     monkeypatch.setattr(repository, "get_event", fail_get_event)
@@ -1804,7 +1810,10 @@ def test_constructor_normalizes_expected_repository_boundary_failures(
             evidence_set, "account_authentication_sequence", 1
         )
 
-    assert captured.value.__cause__ is original_error
+    if original_error is None:
+        assert captured.value.__cause__ is not None
+    else:
+        assert captured.value.__cause__ is original_error
 
 
 @pytest.mark.parametrize(
@@ -1846,6 +1855,8 @@ def test_validator_normalizes_expected_repository_boundary_failures(
     original_error = _repository_failure(failure)
 
     def fail_get_event(_event_id):
+        if original_error is None:
+            return None
         raise original_error
 
     monkeypatch.setattr(repository, "get_event", fail_get_event)
