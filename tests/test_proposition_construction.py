@@ -1575,3 +1575,75 @@ def test_validator_rejects_field_provenance_outside_evidence_manifest(tmp_path):
             constructor.semantics_registry,
             constructor.construction_registry,
         ).validate(forged)
+
+
+def test_validator_rejects_new_ambiguous_required_event_in_manifest(tmp_path):
+    repository, source, start = make_repository(tmp_path)
+    account = Entity(
+        entity_id=new_id(), entity_type="user_account",
+        canonical_identifier="selection-required", created_at=start,
+    )
+    events, evidence_set = _make_authentication_evidence(
+        repository, source, account, start
+    )
+    constructor = make_constructor(repository)
+    proposition = constructor.construct(
+        evidence_set, "account_authentication_sequence", 1
+    )
+    second_account = Entity(
+        entity_id=new_id(), entity_type="user_account",
+        canonical_identifier="selection-second", created_at=start,
+    )
+    duplicate = persist_event(
+        repository, source, second_account, "authentication_failure", "target",
+        start + timedelta(seconds=5),
+    )
+    forged = replace(
+        proposition,
+        evidence_manifest=replace(
+            proposition.evidence_manifest,
+            evidence=proposition.evidence_manifest.evidence
+            + (EvidenceReference(event_id=duplicate.event_id),),
+        ),
+    )
+
+    with pytest.raises(PropositionProvenanceError, match="expected at most one authentication_failure"):
+        PropositionProvenanceValidator(
+            repository, constructor.semantics_registry, constructor.construction_registry
+        ).validate(forged)
+
+
+def test_validator_rejects_omitted_optional_event_role_when_manifest_has_match(tmp_path):
+    repository, source, start = make_repository(tmp_path)
+    account = Entity(
+        entity_id=new_id(), entity_type="user_account",
+        canonical_identifier="selection-optional", created_at=start,
+    )
+    _, evidence_set = _make_authentication_evidence(
+        repository, source, account, start
+    )
+    constructor = _make_optional_role_constructor(repository)
+    proposition = constructor.construct(
+        evidence_set, "account_authentication_sequence", 1
+    )
+    device = Entity(
+        entity_id=new_id(), entity_type="host",
+        canonical_identifier="selection-optional-device", created_at=start,
+    )
+    device_event = persist_event(
+        repository, source, device, "device_activity", "device",
+        start + timedelta(seconds=240),
+    )
+    forged = replace(
+        proposition,
+        evidence_manifest=replace(
+            proposition.evidence_manifest,
+            evidence=proposition.evidence_manifest.evidence
+            + (EvidenceReference(event_id=device_event.event_id),),
+        ),
+    )
+
+    with pytest.raises(PropositionProvenanceError, match="event roles do not match"):
+        PropositionProvenanceValidator(
+            repository, constructor.semantics_registry, constructor.construction_registry
+        ).validate(forged)
