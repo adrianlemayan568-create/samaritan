@@ -314,10 +314,10 @@ def test_fingerprint_normalizes_unicode_to_nfc():
                 s,
                 parameters=(
                     s.parameters[0],
-                    replace(s.parameters[1], required=False),
+                    replace(s.parameters[1], required=False, default_value=1),
                 ),
             ),
-            id="parameter-required",
+            id="parameter-optional-with-default",
         ),
         pytest.param(
             lambda s: replace(
