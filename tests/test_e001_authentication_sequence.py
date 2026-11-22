@@ -329,6 +329,7 @@ def test_e001_case_a_valid_sequence_constructs_and_synthesizes_neutrally(tmp_pat
         EvidenceReference(event_id=item)
         for item in _all_event_ids(event_ids)
     } | {EvidenceReference(observation_id=observation_id)}
+    assert generation.hypothesis_id == generated.hypotheses[0].hypothesis_id
     assert set(generation.evidence) == expected_refs
 
     evidence_set = _evidence_set(_all_event_ids(event_ids), observation_id)
@@ -396,7 +397,7 @@ def test_e001_case_b_different_accounts_are_not_combined(tmp_path, record_proper
     assert len(correlations) == 1
     assert generated.hypotheses == ()
     constructor, _ = _constructor(repository)
-    with pytest.raises(PropositionConstructionError):
+    with pytest.raises(PropositionConstructionError, match="entity role account resolves to different entities"):
         constructor.construct(
             _evidence_set(_all_event_ids(event_ids), observation_id),
             "account_authentication_sequence",
@@ -431,7 +432,7 @@ def test_e001_case_d_missing_required_event_is_rejected(tmp_path, record_propert
     assert len(correlations) == 1
     assert generated.hypotheses == ()
     constructor, _ = _constructor(repository)
-    with pytest.raises(PropositionConstructionError):
+    with pytest.raises(PropositionConstructionError, match="expected exactly one host_activity event"):
         constructor.construct(
             _evidence_set(_all_event_ids(event_ids), observation_id),
             "account_authentication_sequence",
@@ -469,7 +470,7 @@ def test_e001_case_f_shared_ip_does_not_establish_shared_account(tmp_path, recor
     assert len(correlations) == 1
     assert generated.hypotheses == ()
     constructor, _ = _constructor(repository)
-    with pytest.raises(PropositionConstructionError):
+    with pytest.raises(PropositionConstructionError, match="entity role account resolves to different entities"):
         constructor.construct(
             _evidence_set(_all_event_ids(event_ids), observation_id),
             "account_authentication_sequence",
