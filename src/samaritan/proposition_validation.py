@@ -60,9 +60,6 @@ class PropositionProvenanceValidator:
         except (
             DatabaseError,
             sqlite3.Error,
-            KeyError,
-            TypeError,
-            AttributeError,
             UnicodeError,
             ValueError,
         ) as exc:
@@ -95,7 +92,16 @@ class PropositionProvenanceValidator:
 
         roles = {item.role_name: item for item in proposition.roles}
         provenance = {item.field_name: item for item in proposition.field_provenance}
-        parameters = json.loads(proposition.parameters_json)
+        try:
+            parameters = json.loads(proposition.parameters_json)
+        except (json.JSONDecodeError, UnicodeError) as exc:
+            raise PropositionProvenanceError(
+                f"proposition parameters are not valid JSON: {exc}"
+            ) from exc
+        if not isinstance(parameters, dict):
+            raise PropositionProvenanceError(
+                "proposition parameters must decode to a JSON object"
+            )
         bound_parameter_names = {
             item.parameter_name
             for item in (
