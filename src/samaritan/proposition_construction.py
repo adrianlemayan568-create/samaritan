@@ -95,11 +95,19 @@ class PropositionConstructor:
         """Construct one proposition from the exact supplied evidence selection."""
         if type(evidence_set) is not EvidenceSet:
             raise TypeError("evidence_set must be an EvidenceSet")
-        construction = self.construction_registry.get(construction_id, construction_version)
-        semantics = self.semantics_registry.get(
-            construction.proposition_type,
-            construction.semantics_version,
-        )
+        try:
+            construction = self.construction_registry.get(
+                construction_id, construction_version
+            )
+        except KeyError as exc:
+            raise PropositionConstructionError(str(exc)) from exc
+        try:
+            semantics = self.semantics_registry.get(
+                construction.proposition_type,
+                construction.semantics_version,
+            )
+        except KeyError as exc:
+            raise PropositionConstructionError(str(exc)) from exc
         if construction.proposition_type != semantics.proposition_type:
             raise PropositionConstructionError("construction and semantics proposition types differ")
 
