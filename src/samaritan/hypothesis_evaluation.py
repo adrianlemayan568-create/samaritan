@@ -219,5 +219,9 @@ class HypothesisEvaluationEngine:
             findings=findings,
             synthesis=synthesis,
         )
-        record.validate_against(specification)
+        record.validate_against(
+            specification,
+            self.outcome_registry,
+            production=production,
+        )
         return record
