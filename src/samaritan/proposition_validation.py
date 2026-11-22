@@ -61,7 +61,6 @@ class PropositionProvenanceValidator:
             DatabaseError,
             sqlite3.Error,
             UnicodeError,
-            ValueError,
         ) as exc:
             raise PropositionProvenanceError(
                 f"proposition provenance validation failed: {exc}"
@@ -76,13 +75,13 @@ class PropositionProvenanceValidator:
             construction = self.construction_registry.get(
                 proposition.construction_id, proposition.construction_version
             )
-        except KeyError as exc:
+        except (KeyError, ValueError) as exc:
             raise PropositionProvenanceError(str(exc)) from exc
         try:
             semantics = self.semantics_registry.get(
                 proposition.proposition_type, proposition.semantics_version
             )
-        except KeyError as exc:
+        except (KeyError, ValueError) as exc:
             raise PropositionProvenanceError(str(exc)) from exc
         if (
             construction.proposition_type != proposition.proposition_type
@@ -173,9 +172,14 @@ class PropositionProvenanceValidator:
 
         # Authenticate the manifest against the immutable EvidenceSet
         # persisted at construction time before resolving any source records.
-        persisted_evidence_set = self.repository.get_evidence_set(
-            proposition.evidence_manifest.evidence_set_id
-        )
+        try:
+            persisted_evidence_set = self.repository.get_evidence_set(
+                proposition.evidence_manifest.evidence_set_id
+            )
+        except ValueError as exc:
+            raise PropositionProvenanceError(
+                f"persisted EvidenceSet record is invalid: {exc}"
+            ) from exc
         if persisted_evidence_set is None:
             raise PropositionProvenanceError(
                 "evidence manifest references an EvidenceSet that is not persisted"
