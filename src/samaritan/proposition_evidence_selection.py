@@ -72,7 +72,12 @@ def resolve_manifest_selection(
     def load_observation(observation_id: str) -> Observation:
         observation = observations.get(observation_id)
         if observation is None:
-            observation = repository.get_observation(observation_id)
+            try:
+                observation = repository.get_observation(observation_id)
+            except KeyError as exc:
+                raise DatabaseIntegrityError(
+                    f"repository could not resolve observation: {observation_id}"
+                ) from exc
             if observation is None:
                 raise DatabaseIntegrityError(
                     f"referenced observation does not exist: {observation_id}"
@@ -87,7 +92,12 @@ def resolve_manifest_selection(
     def load_event(event_id: str) -> Event:
         event = events.get(event_id)
         if event is None:
-            event = repository.get_event(event_id)
+            try:
+                event = repository.get_event(event_id)
+            except KeyError as exc:
+                raise DatabaseIntegrityError(
+                    f"repository could not resolve event: {event_id}"
+                ) from exc
             if event is None:
                 raise DatabaseIntegrityError(
                     f"referenced event does not exist: {event_id}"
