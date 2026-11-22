@@ -605,6 +605,9 @@ def test_relationship_parameter_binding_requires_selected_observation_and_preser
             construction_registry,
         ).validate(proposition)
     assert relationship_offsets == [0, 500]
+
+    monkeypatch.undo()
+
     assert proposition.parameters_json == (
         '{"account_device_relationship_id":"' + relationship.relationship_id + '"}'
     )
