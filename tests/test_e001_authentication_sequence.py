@@ -450,7 +450,7 @@ def test_e001_case_e_multiple_matching_failures_are_ambiguous(tmp_path, record_p
     assert len(correlations) == 3
     assert len(generated.hypotheses) == 1
     constructor, _ = _constructor(repository)
-    with pytest.raises(PropositionConstructionError):
+    with pytest.raises(PropositionConstructionError, match="event-role selection is ambiguous"):
         constructor.construct(
             _evidence_set(_all_event_ids(event_ids), observation_id),
             "account_authentication_sequence",
