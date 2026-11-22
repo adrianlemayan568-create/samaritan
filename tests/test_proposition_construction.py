@@ -1945,7 +1945,11 @@ def test_constructor_normalizes_expected_repository_boundary_failures(
     if original_error is None:
         assert captured.value.__cause__ is not None
     else:
-        assert captured.value.__cause__ is original_error
+        if failure == "key_error":
+            assert captured.value.__cause__ is not None
+            assert captured.value.__cause__.__cause__ is original_error
+        else:
+            assert captured.value.__cause__ is original_error
 
 
 @pytest.mark.parametrize(
@@ -2010,7 +2014,11 @@ def test_validator_normalizes_expected_repository_boundary_failures(
     if original_error is None:
         assert captured.value.__cause__ is not None
     else:
-        assert captured.value.__cause__ is original_error
+        if failure == "key_error":
+            assert captured.value.__cause__ is not None
+            assert captured.value.__cause__.__cause__ is original_error
+        else:
+            assert captured.value.__cause__ is original_error
 
 
 
