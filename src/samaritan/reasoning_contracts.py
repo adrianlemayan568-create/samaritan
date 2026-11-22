@@ -494,7 +494,9 @@ class HypothesisEvaluationRule:
         if len(ids) != len(set(ids)):
             raise ValueError("criterion IDs in an evaluation rule must be unique")
         known = set(ids)
-        independence_assertion_ids = tuple(item.independence_assertion_id for item in self.criterion_definitions)
+        independence_assertion_ids = tuple(
+            item.independence_assertion_id for item in self.criterion_definitions
+        )
         if len(independence_assertion_ids) != len(set(independence_assertion_ids)):
             raise ValueError("evaluation criteria must have distinct independence assertion identifiers")
         for bearing in self.bearing_definitions:
