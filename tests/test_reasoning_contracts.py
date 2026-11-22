@@ -383,7 +383,7 @@ def test_hypothesis_evaluation_record_preserves_exact_rule_identity():
         findings=(finding,),
         synthesis=synthesis,
     )
-    record.validate_against(specification)
+    record.validate_against(specification, outcomes, production=True)
     assert record.evaluation_rule_id == specification.evaluation_rule.evaluation_rule_id
     assert record.evaluation_rule_version == specification.evaluation_rule.rule_version
 
@@ -795,17 +795,23 @@ def test_residual_bearing_must_share_focal_judgment_with_declared_alternative():
         )
 
 
-def test_evaluation_record_rejects_empty_findings_with_supported_high_synthesis():
+def test_diagnosticity_synthesis_rejects_uncalibrated_high_confidence_ceiling():
+    specification, _, _ = make_specification()
+    synthesis = DiagnosticitySynthesizer().synthesize(
+        specification, (), CriterionOutcomeRegistry(), production=False
+    )
+
+    with pytest.raises(ValueError, match="reserved for a future calibrated milestone"):
+        replace(synthesis, confidence_ceiling="high")
+
+
+def test_evaluation_record_rejects_forged_zero_finding_supported_synthesis():
     specification, _, _ = make_specification()
     outcomes = CriterionOutcomeRegistry()
-    inconclusive = DiagnosticitySynthesizer().synthesize(
+    synthesis = DiagnosticitySynthesizer().synthesize(
         specification, (), outcomes, production=False
     )
-    forged_synthesis = replace(
-        inconclusive,
-        outcome="supported",
-        confidence_ceiling="high",
-    )
+    forged_synthesis = replace(synthesis, outcome="supported")
     record = HypothesisEvaluationRecord(
         evaluation_id=str(uuid4()),
         hypothesis_id=specification.hypothesis.hypothesis_id,
@@ -818,5 +824,124 @@ def test_evaluation_record_rejects_empty_findings_with_supported_high_synthesis(
         synthesis=forged_synthesis,
     )
 
-    with pytest.raises(ValueError, match="high confidence ceiling"):
-        record.validate_against(specification)
+    with pytest.raises(ValueError, match="does not match the result derived"):
+        record.validate_against(specification, outcomes, production=False)
+
+
+def test_evaluation_record_rejects_synthesis_forged_against_valid_finding():
+    specification, criterion, _ = make_specification()
+    outcomes = CriterionOutcomeRegistry()
+    outcomes.register(CriterionOutcomeDefinition(
+        criterion_type=criterion.criterion_type,
+        outcome_code="observed",
+        meaning="Independent account-holder confirmation.",
+    ))
+    finding = CriterionFinding(
+        finding_id=str(uuid4()),
+        criterion_id=criterion.criterion_id,
+        status="matched",
+        outcome_code="observed",
+        evidence=(EvidenceReference(event_id=str(uuid4())),),
+        rationale="The account holder independently confirmed the activity.",
+    )
+    synthesis = DiagnosticitySynthesizer().synthesize(
+        specification, (finding,), outcomes, production=True
+    )
+    forged_synthesis = replace(
+        synthesis,
+        outcome="not_supported",
+        reason_codes=("made_up_reason",),
+    )
+    record = HypothesisEvaluationRecord(
+        evaluation_id=str(uuid4()),
+        hypothesis_id=specification.hypothesis.hypothesis_id,
+        evaluation_rule_id=specification.evaluation_rule.evaluation_rule_id,
+        evaluation_rule_version=specification.evaluation_rule.rule_version,
+        evidence_set_id=str(uuid4()),
+        assessment_id=str(uuid4()),
+        evaluated_at=datetime.now(timezone.utc),
+        findings=(finding,),
+        synthesis=forged_synthesis,
+    )
+
+    with pytest.raises(ValueError, match="does not match the result derived"):
+        record.validate_against(specification, outcomes, production=True)
+
+
+def test_evaluation_record_validation_uses_explicit_experimental_mode():
+    specification, criterion, _ = make_specification()
+    reviewed_bearings = tuple(
+        replace(item, review_status="reviewed")
+        for item in specification.evaluation_rule.bearing_definitions
+    )
+    reviewed_rule = replace(
+        specification.evaluation_rule,
+        bearing_definitions=reviewed_bearings,
+        review_status="reviewed",
+    )
+    specification = replace(specification, evaluation_rule=reviewed_rule)
+    outcomes = CriterionOutcomeRegistry()
+    outcomes.register(CriterionOutcomeDefinition(
+        criterion_type=criterion.criterion_type,
+        outcome_code="observed",
+        meaning="Independent account-holder confirmation.",
+    ))
+    finding = CriterionFinding(
+        finding_id=str(uuid4()),
+        criterion_id=criterion.criterion_id,
+        status="matched",
+        outcome_code="observed",
+        evidence=(EvidenceReference(event_id=str(uuid4())),),
+        rationale="The account holder independently confirmed the activity.",
+    )
+    synthesis = DiagnosticitySynthesizer().synthesize(
+        specification, (finding,), outcomes, production=False
+    )
+    record = HypothesisEvaluationRecord(
+        evaluation_id=str(uuid4()),
+        hypothesis_id=specification.hypothesis.hypothesis_id,
+        evaluation_rule_id=specification.evaluation_rule.evaluation_rule_id,
+        evaluation_rule_version=specification.evaluation_rule.rule_version,
+        evidence_set_id=str(uuid4()),
+        assessment_id=str(uuid4()),
+        evaluated_at=datetime.now(timezone.utc),
+        findings=(finding,),
+        synthesis=synthesis,
+    )
+
+    record.validate_against(specification, outcomes, production=False)
+    with pytest.raises(ValueError, match="production"):
+        record.validate_against(specification, outcomes, production=True)
+
+
+def test_evaluation_record_rejects_finding_with_unregistered_outcome():
+    specification, criterion, _ = make_specification()
+    outcomes = CriterionOutcomeRegistry()
+    finding = CriterionFinding(
+        finding_id=str(uuid4()),
+        criterion_id=criterion.criterion_id,
+        status="matched",
+        outcome_code="made_up",
+        evidence=(EvidenceReference(event_id=str(uuid4())),),
+        rationale="A finding with an unregistered outcome.",
+    )
+    synthesis = DiagnosticitySynthesizer().synthesize(
+        specification,
+        (),
+        CriterionOutcomeRegistry(),
+        production=False,
+    )
+    record = HypothesisEvaluationRecord(
+        evaluation_id=str(uuid4()),
+        hypothesis_id=specification.hypothesis.hypothesis_id,
+        evaluation_rule_id=specification.evaluation_rule.evaluation_rule_id,
+        evaluation_rule_version=specification.evaluation_rule.rule_version,
+        evidence_set_id=str(uuid4()),
+        assessment_id=str(uuid4()),
+        evaluated_at=datetime.now(timezone.utc),
+        findings=(finding,),
+        synthesis=synthesis,
+    )
+
+    with pytest.raises(KeyError, match="unregistered criterion outcome"):
+        record.validate_against(specification, outcomes, production=False)
