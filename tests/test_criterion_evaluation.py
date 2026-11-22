@@ -4,7 +4,10 @@ import pytest
 from datetime import datetime, timedelta, timezone
 
 from samaritan.analysis_contracts import EvidenceReference
-from samaritan.criterion_evaluation import CriterionEvaluationEngine
+from samaritan.criterion_evaluation import (
+    CriterionEvaluationEngine,
+    CriterionEvaluationError,
+)
 from samaritan.hypothesis_evaluation import HypothesisEvaluationEngine
 from samaritan.contracts import (
     Event,
@@ -578,13 +581,57 @@ def test_missing_registered_attribute_is_insufficient_not_a_negative_finding(tmp
         parameter_definitions=parameters,
         description="Check for a registered normalized event attribute.",
     ))
+    outcomes = CriterionOutcomeRegistry()
+    outcomes.register(CriterionOutcomeDefinition(
+        criterion_type=criterion.criterion_type,
+        vocabulary_version=criterion.outcome_vocabulary_version,
+        outcome_code="present",
+        meaning="The registered normalized event attribute is present.",
+    ))
     finding = CriterionEvaluationEngine(
-        repository, evaluators, CriterionOutcomeRegistry()
+        repository, evaluators, outcomes
     ).evaluate(criterion, proposition, evidence_set)
 
     assert finding.status == "insufficient"
     assert finding.outcome_code is None
     assert "coverage" in finding.missing_information[0].lower()
+
+
+def test_direct_criterion_engine_rejects_missing_evaluator_outcomes_before_execution(tmp_path, monkeypatch):
+    repository, proposition, evidence_set, _, _ = make_evaluation_context(tmp_path)
+    parameters = (
+        CriterionParameterDefinition("event_role", "string", required=True),
+        CriterionParameterDefinition("attribute_name", "string", required=True),
+    )
+    criterion = CriterionDefinition(
+        criterion_id="preflight-outcome-coverage",
+        criterion_type="context_attribute",
+        parameters_json='{"event_role":"success_event","attribute_name":"device_fingerprint"}',
+        description="Check whether the normalized event records a device fingerprint.",
+        independence_assertion_id="authentication-event",
+        parameter_definitions=parameters,
+    )
+    evaluators = CriterionEvaluatorRegistry()
+    evaluators.register(CriterionEvaluatorDefinition(
+        criterion_type=criterion.criterion_type,
+        evaluator_version=1,
+        evaluator_type="event_attribute_present",
+        parameter_definitions=parameters,
+        description="Check for a registered normalized event attribute.",
+    ))
+    engine = CriterionEvaluationEngine(
+        repository, evaluators, CriterionOutcomeRegistry()
+    )
+
+    def unexpected_evidence_resolution(_evidence):
+        raise AssertionError("evidence resolution must not run before outcome preflight")
+
+    monkeypatch.setattr(engine, "_resolve_evidence", unexpected_evidence_resolution)
+    with pytest.raises(
+        CriterionEvaluationError,
+        match="criterion evaluator outcomes are not fully registered",
+    ):
+        engine.evaluate(criterion, proposition, evidence_set)
 
 
 def test_temporal_gap_reports_ordering_violation_separately(tmp_path):
