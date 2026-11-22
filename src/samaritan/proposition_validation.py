@@ -217,7 +217,7 @@ class PropositionProvenanceValidator:
             expected_entity_role_records = resolve_entity_roles(
                 semantics, construction, expected_event_selection
             )
-        except (TypeError, ValueError) as exc:
+        except ValueError as exc:
             raise PropositionProvenanceError(str(exc)) from exc
         expected_event_roles = dict(expected_event_selection.event_roles)
         expected_entity_roles = {
@@ -412,7 +412,7 @@ class PropositionProvenanceValidator:
                 expected_entity_role_records,
                 tuple(selected_relationships),
             )
-        except (TypeError, ValueError) as exc:
+        except ValueError as exc:
             raise PropositionProvenanceError(str(exc)) from exc
         expected_parameters_by_name = {
             item.parameter_name: item for item in expected_parameters
