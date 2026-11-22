@@ -708,8 +708,10 @@ class DiagnosticitySynthesis:
     def __post_init__(self) -> None:
         if self.outcome not in {"supported", "not_supported", "inconclusive"}:
             raise ValueError("unsupported diagnosticity outcome")
-        if self.confidence_ceiling not in {"low", "moderate", "high"}:
-            raise ValueError("unsupported confidence ceiling")
+        if self.confidence_ceiling not in {"low", "moderate"}:
+            raise ValueError(
+                "high confidence ceiling is reserved for a future calibrated milestone"
+            )
         if not isinstance(self.alternative_standings, tuple) or not all(
             type(item) is AlternativeStanding for item in self.alternative_standings
         ):
@@ -760,9 +762,20 @@ class HypothesisEvaluationRecord:
             raise TypeError("synthesis must be a DiagnosticitySynthesis")
         _schema(self.schema_version, "hypothesis evaluation record")
 
-    def validate_against(self, specification: HypothesisSpecification) -> None:
+    def validate_against(
+        self,
+        specification: HypothesisSpecification,
+        outcome_registry: CriterionOutcomeRegistry,
+        *,
+        production: bool,
+    ) -> None:
+        """Re-derive synthesis and require the record to preserve that exact result."""
         if type(specification) is not HypothesisSpecification:
             raise TypeError("specification must be a HypothesisSpecification")
+        if type(outcome_registry) is not CriterionOutcomeRegistry:
+            raise TypeError("outcome_registry must be a CriterionOutcomeRegistry")
+        if type(production) is not bool:
+            raise TypeError("production must be a boolean")
         if self.hypothesis_id != specification.hypothesis.hypothesis_id:
             raise ValueError("evaluation hypothesis ID does not match specification")
         if (
@@ -770,24 +783,16 @@ class HypothesisEvaluationRecord:
             or self.evaluation_rule_version != specification.evaluation_rule.rule_version
         ):
             raise ValueError("evaluation rule identity does not match specification")
-        criterion_ids = {
-            item.criterion_id for item in specification.evaluation_rule.criterion_definitions
-        }
-        if any(item.criterion_id not in criterion_ids for item in self.findings):
-            raise ValueError("evaluation record contains a finding outside its rule")
-        expected_alternatives = {
-            item.alternative_id for item in specification.alternatives
-        }
-        if self.synthesis.confidence_ceiling == "high":
-            raise ValueError("M2.4 does not permit a high confidence ceiling")
-        if not self.findings and self.synthesis.outcome != "inconclusive":
+
+        from samaritan.diagnosticity import DiagnosticitySynthesizer
+
+        expected_synthesis = DiagnosticitySynthesizer().synthesize(
+            specification,
+            self.findings,
+            outcome_registry,
+            production=production,
+        )
+        if self.synthesis != expected_synthesis:
             raise ValueError(
-                "an evaluation with no findings must be inconclusive"
+                "evaluation synthesis does not match the result derived from its findings"
             )
-        if self.synthesis.outcome == "supported" and not self.findings:
-            raise ValueError("supported evaluations require at least one finding")
-        actual_alternatives = {
-            item.alternative_id for item in self.synthesis.alternative_standings
-        }
-        if actual_alternatives != expected_alternatives:
-            raise ValueError("evaluation synthesis alternatives do not match specification")
