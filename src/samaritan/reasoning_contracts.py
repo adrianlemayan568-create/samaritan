@@ -496,7 +496,7 @@ class HypothesisEvaluationRule:
         known = set(ids)
         independence_assertion_ids = tuple(item.independence_assertion_id for item in self.criterion_definitions)
         if len(independence_assertion_ids) != len(set(independence_assertion_ids)):
-            raise ValueError("evaluation criteria must have distinct independence groups")
+            raise ValueError("evaluation criteria must have distinct independence assertion identifiers")
         for bearing in self.bearing_definitions:
             if bearing.criterion_id not in known:
                 raise ValueError("bearing references an undeclared criterion")
