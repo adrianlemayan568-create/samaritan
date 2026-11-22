@@ -847,10 +847,18 @@ def test_evaluation_record_rejects_synthesis_forged_against_valid_finding():
     synthesis = DiagnosticitySynthesizer().synthesize(
         specification, (finding,), outcomes, production=True
     )
+    forged_standing = replace(
+        synthesis.alternative_standings[0],
+        supporting_finding_ids=(
+            *synthesis.alternative_standings[0].supporting_finding_ids,
+            str(uuid4()),
+        ),
+    )
     forged_synthesis = replace(
         synthesis,
         outcome="not_supported",
         reason_codes=("made_up_reason",),
+        alternative_standings=(forged_standing,),
     )
     record = HypothesisEvaluationRecord(
         evaluation_id=str(uuid4()),
@@ -945,3 +953,36 @@ def test_evaluation_record_rejects_finding_with_unregistered_outcome():
 
     with pytest.raises(KeyError, match="unregistered criterion outcome"):
         record.validate_against(specification, outcomes, production=False)
+
+
+
+def test_evaluation_record_rejects_supported_synthesis_from_only_insufficient_findings():
+    specification, criterion, _ = make_specification()
+    outcomes = CriterionOutcomeRegistry()
+    finding = CriterionFinding(
+        finding_id=str(uuid4()),
+        criterion_id=criterion.criterion_id,
+        status="insufficient",
+        outcome_code=None,
+        evidence=(),
+        rationale="The source is incomplete.",
+        missing_information=("A complete independent confirmation",),
+    )
+    synthesis = DiagnosticitySynthesizer().synthesize(
+        specification, (finding,), outcomes, production=True
+    )
+    forged_synthesis = replace(synthesis, outcome="supported")
+    record = HypothesisEvaluationRecord(
+        evaluation_id=str(uuid4()),
+        hypothesis_id=specification.hypothesis.hypothesis_id,
+        evaluation_rule_id=specification.evaluation_rule.evaluation_rule_id,
+        evaluation_rule_version=specification.evaluation_rule.rule_version,
+        evidence_set_id=str(uuid4()),
+        assessment_id=str(uuid4()),
+        evaluated_at=datetime.now(timezone.utc),
+        findings=(finding,),
+        synthesis=forged_synthesis,
+    )
+
+    with pytest.raises(ValueError, match="does not match the result derived"):
+        record.validate_against(specification, outcomes, production=True)
