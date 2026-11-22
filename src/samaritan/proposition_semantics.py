@@ -209,6 +209,10 @@ class SemanticParameterDefinition:
 
         if self.required and self.default_value is not None:
             raise ValueError("required parameters cannot have a default value")
+        if not self.required and self.default_value is None:
+            raise ValueError(
+                "optional semantic parameters must define a default value"
+            )
 
         if not isinstance(self.meaning, str):
             raise TypeError("meaning must be a string")
