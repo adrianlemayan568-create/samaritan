@@ -1929,6 +1929,14 @@ def test_constructor_normalizes_expected_repository_boundary_failures(
 
     monkeypatch.setattr(repository, "get_event", fail_get_event)
 
+    if isinstance(original_error, (AttributeError, TypeError)):
+        with pytest.raises(type(original_error)) as captured:
+            make_constructor(repository).construct(
+                evidence_set, "account_authentication_sequence", 1
+            )
+        assert captured.value is original_error
+        return
+
     with pytest.raises(PropositionConstructionError) as captured:
         make_constructor(repository).construct(
             evidence_set, "account_authentication_sequence", 1
@@ -1989,6 +1997,12 @@ def test_validator_normalizes_expected_repository_boundary_failures(
         constructor.semantics_registry,
         constructor.construction_registry,
     )
+
+    if isinstance(original_error, (AttributeError, TypeError)):
+        with pytest.raises(type(original_error)) as captured:
+            validator.validate(proposition)
+        assert captured.value is original_error
+        return
 
     with pytest.raises(PropositionProvenanceError) as captured:
         validator.validate(proposition)
