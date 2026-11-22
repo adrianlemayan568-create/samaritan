@@ -80,7 +80,6 @@ class PropositionConstructor:
             DatabaseError,
             sqlite3.Error,
             UnicodeError,
-            ValueError,
         ) as exc:
             raise PropositionConstructionError(
                 f"proposition construction failed: {exc}"
@@ -99,14 +98,14 @@ class PropositionConstructor:
             construction = self.construction_registry.get(
                 construction_id, construction_version
             )
-        except KeyError as exc:
+        except (KeyError, ValueError) as exc:
             raise PropositionConstructionError(str(exc)) from exc
         try:
             semantics = self.semantics_registry.get(
                 construction.proposition_type,
                 construction.semantics_version,
             )
-        except KeyError as exc:
+        except (KeyError, ValueError) as exc:
             raise PropositionConstructionError(str(exc)) from exc
         if construction.proposition_type != semantics.proposition_type:
             raise PropositionConstructionError("construction and semantics proposition types differ")
