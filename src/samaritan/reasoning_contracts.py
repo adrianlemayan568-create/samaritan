@@ -70,13 +70,13 @@ class CriterionParameterDefinition:
 
 @dataclass(frozen=True, slots=True)
 class CriterionDefinition:
-    """Define an independently testable evidence condition without a stance."""
+    """Define a testable evidence condition and its reviewed independence assertion."""
 
     criterion_id: str
     criterion_type: str
     parameters_json: str
     description: str
-    independence_group: str
+    independence_assertion_id: str
     parameter_definitions: tuple[CriterionParameterDefinition, ...] = ()
     outcome_vocabulary_version: int = 1
     evaluator_version: int = 1
@@ -84,7 +84,7 @@ class CriterionDefinition:
     schema_version: int = SCHEMA_VERSION
 
     def __post_init__(self) -> None:
-        for name in ("criterion_id", "criterion_type", "independence_group"):
+        for name in ("criterion_id", "criterion_type", "independence_assertion_id"):
             object.__setattr__(self, name, validate_identifier(getattr(self, name), name))
         object.__setattr__(self, "description", validate_text(self.description, "description"))
         object.__setattr__(self, "parameters_json", _json_object(self.parameters_json, "parameters_json"))
@@ -494,8 +494,8 @@ class HypothesisEvaluationRule:
         if len(ids) != len(set(ids)):
             raise ValueError("criterion IDs in an evaluation rule must be unique")
         known = set(ids)
-        independence_groups = tuple(item.independence_group for item in self.criterion_definitions)
-        if len(independence_groups) != len(set(independence_groups)):
+        independence_assertion_ids = tuple(item.independence_assertion_id for item in self.criterion_definitions)
+        if len(independence_assertion_ids) != len(set(independence_assertion_ids)):
             raise ValueError("evaluation criteria must have distinct independence groups")
         for bearing in self.bearing_definitions:
             if bearing.criterion_id not in known:
