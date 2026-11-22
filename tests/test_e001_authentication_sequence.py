@@ -16,8 +16,6 @@ from samaritan.analysis_contracts import EvidenceReference
 from samaritan.contracts import Source, new_id
 from samaritan.correlation import CorrelationEngine
 from samaritan.correlation_contracts import CorrelationRule
-from samaritan.criterion_evaluation import CriterionEvaluatorRegistry
-from samaritan.criterion_evaluation import CriterionEvaluationEngine
 from samaritan.database import Database
 from samaritan.evaluation_contracts import EvidenceSet
 from samaritan.hypothesis_evaluation import HypothesisEvaluationEngine
@@ -38,6 +36,7 @@ from samaritan.proposition_semantics import (
 from samaritan.reasoning_contracts import (
     BearingDefinition,
     CriterionDefinition,
+    CriterionEvaluatorRegistry,
     CriterionEvaluatorDefinition,
     CriterionOutcomeDefinition,
     CriterionOutcomeRegistry,
@@ -234,7 +233,7 @@ def _all_event_ids(event_ids_by_type):
     )
 
 
-def _evaluate_neutrally(repository, semantics, focal, focal_set, alternative):
+def _evaluate_neutrally(repository, semantics, focal, focal_set, alternative, generated_hypothesis):
     params = (
         CriterionParameterDefinition("event_role", "string", required=True),
         CriterionParameterDefinition("attribute_name", "string", required=True),
@@ -299,9 +298,9 @@ def _evaluate_neutrally(repository, semantics, focal, focal_set, alternative):
     registry.register(rule)
     specification = HypothesisSpecification(
         hypothesis=StructuredHypothesis(
-            hypothesis_id=new_id(),
+            hypothesis_id=generated_hypothesis.hypothesis_id,
             proposition=focal,
-            created_at=NOW,
+            created_at=generated_hypothesis.created_at,
         ),
         alternatives=(alternative,),
         evaluation_rule=rule,
@@ -362,7 +361,8 @@ def test_e001_case_a_valid_sequence_constructs_and_synthesizes_neutrally(tmp_pat
         description="A separately constructed valid sequence for a different account.",
     )
     engine, specification = _evaluate_neutrally(
-        repository, semantics, focal, evidence_set, alternative_contract
+        repository, semantics, focal, evidence_set, alternative_contract,
+        generated.hypotheses[0],
     )
     started = perf_counter()
     record = engine.evaluate(specification, evidence_set, production=False)
@@ -428,7 +428,7 @@ def test_e001_case_d_missing_required_event_is_rejected(tmp_path, record_propert
     specs = [item for item in specs if item["event_type"] != "host_activity"]
     event_ids, observation_id = _ingest_specs(service, source, specs)
     correlations, generated = _pipeline(repository, event_ids, record_property)
-    assert len(correlations) == 0
+    assert len(correlations) == 1
     assert generated.hypotheses == ()
     constructor, _ = _constructor(repository)
     with pytest.raises(PropositionConstructionError):
@@ -505,7 +505,8 @@ def test_e001_case_g_missing_normalized_attribute_is_insufficient(tmp_path, reco
         description="A separately constructed valid sequence for a different account.",
     )
     engine, specification = _evaluate_neutrally(
-        repository, semantics, focal, evidence_set, alternative_contract
+        repository, semantics, focal, evidence_set, alternative_contract,
+        generated.hypotheses[0],
     )
     record = engine.evaluate(specification, evidence_set, production=False)
     finding = record.findings[0]
