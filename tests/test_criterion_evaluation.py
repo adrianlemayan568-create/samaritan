@@ -155,7 +155,7 @@ def test_registered_event_attribute_evaluator_returns_stance_neutral_finding(tmp
         criterion_type="authentication_result",
         parameters_json='{"event_role":"success_event","attribute_name":"result","expected_value":"success"}',
         description="The normalized authentication result equals the registered expected value.",
-        independence_group="authentication-event",
+        independence_assertion_id="authentication-event",
         parameter_definitions=parameters,
     )
     evaluators = CriterionEvaluatorRegistry()
@@ -221,7 +221,7 @@ def test_hypothesis_evaluation_engine_runs_findings_and_synthesis_end_to_end(tmp
         criterion_type="authentication_result",
         parameters_json='{"event_role":"success_event","attribute_name":"result","expected_value":"success"}',
         description="The normalized authentication result equals the registered expected value.",
-        independence_group="authentication-event",
+        independence_assertion_id="authentication-event",
         parameter_definitions=parameter_definitions,
     )
     evaluators = CriterionEvaluatorRegistry()
@@ -567,7 +567,7 @@ def test_missing_registered_attribute_is_insufficient_not_a_negative_finding(tmp
         criterion_type="context_attribute",
         parameters_json='{"event_role":"success_event","attribute_name":"device_fingerprint"}',
         description="Check whether the normalized event records a device fingerprint.",
-        independence_group="authentication-event",
+        independence_assertion_id="authentication-event",
         parameter_definitions=parameters,
     )
     evaluators = CriterionEvaluatorRegistry()
@@ -670,7 +670,7 @@ def test_temporal_gap_reports_ordering_violation_separately(tmp_path):
         criterion_type="temporal_order",
         parameters_json='{"earlier_event_role":"earlier_event","later_event_role":"later_event","maximum_seconds":60}',
         description="The earlier event must strictly precede the later event.",
-        independence_group="temporal-order-source",
+        independence_assertion_id="temporal-order-source",
         parameter_definitions=parameters,
     )
     evaluators = CriterionEvaluatorRegistry()
@@ -826,7 +826,7 @@ def test_event_type_count_is_scoped_to_entity_and_proposition_temporal_window(tm
         criterion_type="account_failure_count",
         parameters_json='{"event_type":"authentication_failure","minimum_count":2,"entity_role":"account"}',
         description="Count failures for the focal account within the proposition time scope.",
-        independence_group="account-event-source",
+        independence_assertion_id="account-event-source",
         parameter_definitions=parameters,
     )
     evaluators = CriterionEvaluatorRegistry()
