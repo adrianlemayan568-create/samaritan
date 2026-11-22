@@ -1432,78 +1432,43 @@ def test_optional_parameter_uses_explicit_default_when_optional_event_is_absent(
 
 
 
-def test_optional_temporal_parameter_is_omitted_when_event_dependency_is_absent(tmp_path):
-    repository, source, start = make_repository(tmp_path)
-    account = Entity(
-        entity_id=new_id(), entity_type="user_account",
-        canonical_identifier="optional-temporal-parameter", created_at=start,
-    )
-    _, evidence_set = _make_authentication_evidence(repository, source, account, start)
-    parameter = SemanticParameterDefinition(
-        "success_to_device_seconds",
-        "integer",
-        required=False,
-        meaning="Elapsed seconds from authentication success to optional device activity.",
-    )
-    proposition = _make_optional_role_constructor(
-        repository,
-        parameter=parameter,
-        parameter_binding_kind="temporal",
-    ).construct(evidence_set, "account_authentication_sequence", 1)
-
-    assert proposition.parameters_json == "{}"
-    assert "success_to_device_seconds" not in {
-        item.field_name for item in proposition.field_provenance
-    }
+def test_optional_temporal_parameter_requires_an_explicit_default():
+    with pytest.raises(
+        ValueError,
+        match="optional semantic parameters must define a default value",
+    ):
+        SemanticParameterDefinition(
+            "success_to_device_seconds",
+            "integer",
+            required=False,
+            meaning="Elapsed seconds from authentication success to optional device activity.",
+        )
 
 
-def test_optional_relationship_parameter_is_omitted_when_entity_dependency_is_absent(tmp_path):
-    repository, source, start = make_repository(tmp_path)
-    account = Entity(
-        entity_id=new_id(), entity_type="user_account",
-        canonical_identifier="optional-relationship-parameter", created_at=start,
-    )
-    _, evidence_set = _make_authentication_evidence(repository, source, account, start)
-    parameter = SemanticParameterDefinition(
-        "account_device_relationship_id",
-        "string",
-        required=False,
-        meaning="The explicit relationship connecting the account to the optional device.",
-    )
-    proposition = _make_optional_role_constructor(
-        repository,
-        parameter=parameter,
-        parameter_binding_kind="relationship",
-    ).construct(evidence_set, "account_authentication_sequence", 1)
-
-    assert proposition.parameters_json == "{}"
-    assert "account_device_relationship_id" not in {
-        item.field_name for item in proposition.field_provenance
-    }
+def test_optional_relationship_parameter_requires_an_explicit_default():
+    with pytest.raises(
+        ValueError,
+        match="optional semantic parameters must define a default value",
+    ):
+        SemanticParameterDefinition(
+            "account_device_relationship_id",
+            "string",
+            required=False,
+            meaning="The explicit relationship connecting the account to the optional device.",
+        )
 
 
-def test_optional_parameter_without_default_is_omitted_when_event_source_is_absent(tmp_path):
-    repository, source, start = make_repository(tmp_path)
-    account = Entity(
-        entity_id=new_id(), entity_type="user_account",
-        canonical_identifier="optional-no-default", created_at=start,
-    )
-    _, evidence_set = _make_authentication_evidence(repository, source, account, start)
-    parameter = SemanticParameterDefinition(
-        "device_state",
-        "string",
-        required=False,
-        meaning="State reported by the optional device activity event.",
-    )
-    proposition = _make_optional_role_constructor(
-        repository,
-        parameter=parameter,
-    ).construct(evidence_set, "account_authentication_sequence", 1)
-
-    assert proposition.parameters_json == "{}"
-    assert "device_state" not in {
-        item.field_name for item in proposition.field_provenance
-    }
+def test_optional_parameter_without_default_is_rejected():
+    with pytest.raises(
+        ValueError,
+        match="optional semantic parameters must define a default value",
+    ):
+        SemanticParameterDefinition(
+            "device_state",
+            "string",
+            required=False,
+            meaning="State reported by the optional device activity event.",
+        )
 
 
 @pytest.mark.parametrize("optional_offset_seconds", [-60, 240])
