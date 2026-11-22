@@ -619,6 +619,7 @@ def test_duplicate_parameter_names_are_rejected():
     parameter = SemanticParameterDefinition(
         parameter_name="mode",
         value_type="string",
+        default_value="strict",
     )
 
     with pytest.raises(ValueError, match="unique"):
@@ -779,7 +780,7 @@ def test_acyclic_temporal_chain_is_accepted():
             "first", "second", schema_version=True,
         ),
         lambda: SemanticParameterDefinition(
-            "mode", "string", schema_version=True,
+            "mode", "string", default_value="strict", schema_version=True,
         ),
         lambda: PropositionSemantics(
             "test", 1, (make_role(),), schema_version=True,
