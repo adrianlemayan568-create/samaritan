@@ -92,7 +92,7 @@ def make_specification(focal=None, outcome="observed"):
         criterion_type="out_of_band_confirmation",
         parameters_json="{}",
         description="The account holder independently confirms the activity.",
-        independence_group="account-holder-confirmation",
+        independence_assertion_id="account-holder-confirmation",
     )
     bearings = (
         BearingDefinition(
@@ -247,7 +247,7 @@ def test_criterion_parameters_are_typed_and_defaults_are_materialized():
         criterion_type="threshold_check",
         parameters_json='{"minimum": 3}',
         description="Check a typed threshold.",
-        independence_group="threshold-source",
+        independence_assertion_id="threshold-source",
         parameter_definitions=(
             CriterionParameterDefinition("minimum", "integer", required=True),
             CriterionParameterDefinition("enabled", "boolean", default_value=True),
@@ -263,7 +263,7 @@ def test_criterion_parameter_type_mismatch_is_rejected():
             criterion_type="threshold_check",
             parameters_json='{"minimum": true}',
             description="Check a typed threshold.",
-            independence_group="threshold-source",
+            independence_assertion_id="threshold-source",
             parameter_definitions=(
                 CriterionParameterDefinition("minimum", "integer", required=True),
             ),
@@ -396,7 +396,7 @@ def test_opposing_findings_across_independent_criteria_aggregate_as_conflicting(
         criterion_type="network_context",
         parameters_json="{}",
         description="An independent network-context condition.",
-        independence_group="network-source",
+        independence_assertion_id="network-source",
     )
     first_bearings = specification.evaluation_rule.bearing_definitions
     second_bearings = (
@@ -491,7 +491,7 @@ def make_two_criterion_specification(
         criterion_type="network_context",
         parameters_json="{}",
         description="An independent network-context condition.",
-        independence_group="network-source",
+        independence_assertion_id="network-source",
     )
 
     first_bearings = tuple(
@@ -986,3 +986,30 @@ def test_evaluation_record_rejects_supported_synthesis_from_only_insufficient_fi
 
     with pytest.raises(ValueError, match="does not match the result derived"):
         record.validate_against(specification, outcomes, production=True)
+
+def test_evaluation_rule_requires_distinct_independence_assertion_ids():
+    specification = make_two_criterion_specification()
+    rule = specification.evaluation_rule
+    first, second = rule.criterion_definitions
+
+    assert first.independence_assertion_id != second.independence_assertion_id
+
+    duplicate = replace(
+        second,
+        independence_assertion_id=first.independence_assertion_id,
+    )
+    with pytest.raises(
+        ValueError,
+        match="distinct independence assertion identifiers",
+    ):
+        HypothesisEvaluationRule(
+            evaluation_rule_id=rule.evaluation_rule_id,
+            rule_version=rule.rule_version,
+            proposition_type=rule.proposition_type,
+            semantics_version=rule.semantics_version,
+            semantics_fingerprint=rule.semantics_fingerprint,
+            criterion_definitions=(first, duplicate),
+            bearing_definitions=rule.bearing_definitions,
+            description=rule.description,
+            review_status=rule.review_status,
+        )
