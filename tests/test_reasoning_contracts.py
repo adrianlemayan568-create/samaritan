@@ -988,7 +988,7 @@ def test_evaluation_record_rejects_supported_synthesis_from_only_insufficient_fi
         record.validate_against(specification, outcomes, production=True)
 
 def test_evaluation_rule_requires_distinct_independence_assertion_ids():
-    specification = make_two_criterion_specification()
+    specification, _, _, _ = make_two_criterion_specification()
     rule = specification.evaluation_rule
     first, second = rule.criterion_definitions
 
