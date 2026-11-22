@@ -65,6 +65,20 @@ class CriterionEvaluationEngine:
             raise TypeError("evidence_set must be an EvidenceSet")
 
         evaluator = self.evaluator_registry.validate_criterion(criterion)
+        declared_outcomes = set(self.evaluator_registry.output_codes_for(criterion))
+        registered_outcomes = {
+            item.outcome_code
+            for item in self.outcome_registry.list_for(
+                criterion.criterion_type,
+                criterion.outcome_vocabulary_version,
+            )
+        }
+        missing_outcomes = sorted(declared_outcomes - registered_outcomes)
+        if missing_outcomes:
+            raise CriterionEvaluationError(
+                "criterion evaluator outcomes are not fully registered: "
+                f"{criterion.criterion_id}: {missing_outcomes}"
+            )
         parameters = json.loads(criterion.parameters_json)
         events, _ = self._resolve_evidence(evidence_set.evidence)
         event_refs = tuple(
