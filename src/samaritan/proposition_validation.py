@@ -72,12 +72,18 @@ class PropositionProvenanceValidator:
         if type(proposition) is not Proposition:
             raise TypeError("proposition must be a Proposition")
 
-        construction = self.construction_registry.get(
-            proposition.construction_id, proposition.construction_version
-        )
-        semantics = self.semantics_registry.get(
-            proposition.proposition_type, proposition.semantics_version
-        )
+        try:
+            construction = self.construction_registry.get(
+                proposition.construction_id, proposition.construction_version
+            )
+        except KeyError as exc:
+            raise PropositionProvenanceError(str(exc)) from exc
+        try:
+            semantics = self.semantics_registry.get(
+                proposition.proposition_type, proposition.semantics_version
+            )
+        except KeyError as exc:
+            raise PropositionProvenanceError(str(exc)) from exc
         if (
             construction.proposition_type != proposition.proposition_type
             or construction.semantics_version != proposition.semantics_version
