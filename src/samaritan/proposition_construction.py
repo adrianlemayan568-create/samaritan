@@ -79,9 +79,6 @@ class PropositionConstructor:
         except (
             DatabaseError,
             sqlite3.Error,
-            KeyError,
-            TypeError,
-            AttributeError,
             UnicodeError,
             ValueError,
         ) as exc:
