@@ -23,11 +23,29 @@ Execution environment:
 - Operating system: antiX 26.1 (Debian GNU/Linux 13.7 base).
 - Hardware: IBM desktop with Intel Pentium 4 3.00 GHz; one physical core with Hyper-Threading.
 - Memory: approximately 957 MiB RAM; 2 GiB swap.
-- Python: 3.13.5.
-- pytest: 9.2.0.
 - Project declaration: `requires-python = ">=3.14"`.
 
-**Compatibility qualification:** the available IBM environment runs Python 3.13.5, below the project's declared minimum of Python 3.14. These successful runs demonstrate compatibility in the available environment; they do not establish supported-runtime validation. A run under Python 3.14 or later remains necessary.
+Two isolated Python environments were used:
+
+**Python 3.13.5 compatibility run**
+
+- Python: 3.13.5 (system-independent project test virtual environment).
+- pytest: 9.2.0.
+- Virtual environment: `~/samaritan-test-venv`.
+
+**Python 3.14.10 declared-runtime run**
+
+- Python: 3.14.10, built from the official Python.org CPython 3.14.10 source archive.
+- Source archive SHA-256: `de414a57119abef52784d8993e341d53aed635fc2b05c2607d9f98a2c5b72032` (verified against the published Python.org checksum).
+- Private interpreter prefix: `~/.local/python-3.14`.
+- Build configuration: `./configure --prefix="$HOME/.local/python-3.14" --with-ensurepip=install`.
+- Build and installation: `make -j1`, followed by `make install`.
+- Virtual environment: `~/samaritan-py314-venv`.
+- The project was installed editable in this environment using `pip install -e . --no-build-isolation`.
+
+The Python 3.14.10 build did not produce the optional standard-library modules `_dbm`, `_tkinter`, `_uuid`, and `_zstd`. The core modules needed by the project and its test environment—including `ssl`, `sqlite3`, `bz2`, `lzma`, `ctypes`, `readline`, `zlib`, and `venv`—were verified. The E003 and full-suite test runs completed successfully in this environment.
+
+**Runtime qualification:** Python 3.14.10 satisfies the project's declared minimum runtime. The Python 3.13.5 results are retained as historical compatibility observations only; Python 3.13.5 is below the declared minimum and is not supported-runtime validation. The Python 3.14.10 results provide supported-runtime test evidence for this checkout on this IBM environment, not a guarantee for every platform or future revision.
 
 The experiment uses temporary SQLite databases and synthetic records. The test suite is deterministic in its inputs and fixed experimental timestamps. No external or real-world evidence was used.
 
@@ -111,7 +129,9 @@ This does **not** establish that the two records represent two independent real-
 
 ## 4. Test execution results
 
-### Focused reconstructed E003 suite
+### Python 3.13.5 compatibility run
+
+**Focused reconstructed E003 suite**
 
 Command:
 
@@ -126,7 +146,7 @@ Observed output:
 5 passed in 1.14s
 ```
 
-### Full project regression suite
+**Full project regression suite**
 
 Command:
 
@@ -140,7 +160,40 @@ Observed output:
 749 passed in 12.69s
 ```
 
-Both runs were performed on Python 3.13.5, below the declared Python >=3.14 requirement. The results must be read with the environment qualification in Section 2.
+These are below-minimum-runtime compatibility results only.
+
+### Python 3.14.10 declared-runtime run
+
+**Focused reconstructed E003 suite**
+
+Command:
+
+```bash
+PYTHONPATH=src:tests ~/samaritan-py314-venv/bin/python -m pytest -q tests/test_e003_evidence_integrity.py
+```
+
+Observed output:
+
+```text
+.....                                                                    [100%]
+5 passed in 1.36s
+```
+
+**Full project regression suite**
+
+Command:
+
+```bash
+PYTHONPATH=src:tests ~/samaritan-py314-venv/bin/python -m pytest -q
+```
+
+Observed output:
+
+```text
+749 passed in 14.33s
+```
+
+These results establish that the current reconstructed E003 tests and the full 749-test suite pass under CPython 3.14.10 on the stated IBM environment. They do not establish cross-platform behavior or validate future revisions.
 
 ## 5. Consolidated findings
 
@@ -164,15 +217,17 @@ The central distinction is between **record identity**, **real-world occurrence 
 - Reconstructed Case D checks timestamp ingestion and persistence, not downstream analytical consequences or the cause of the future timestamp.
 - Case E uses the default retrieval methods and a small three-event sequence; it is not an exhaustive pagination or ordering test.
 - No deduplication, conflict resolution, timestamp correction, automatic trust scoring, or evidence-independence inference was introduced.
-- The available runtime is Python 3.13.5 despite the project's Python >=3.14 declaration. Supported-runtime validation remains outstanding.
-- Passing tests establish that the implementation satisfies these test assertions in this environment. They do not prove that the assertions exhaustively model real-world evidence behavior or that the system is ready for consequential real-world investigations.
+- Python 3.13.5 is below the project's declared Python >=3.14 minimum; its results are compatibility observations, not supported-runtime validation.
+- Python 3.14.10 validation was performed on one IBM antiX environment. It does not establish behavior across other operating systems, architectures, dependency configurations, or future revisions.
+- The Python 3.14.10 build lacked the optional standard-library modules `_dbm`, `_tkinter`, `_uuid`, and `_zstd`. The required core modules were verified, and the reported tests passed in that environment; this does not establish that optional modules are unnecessary for every possible project use.
+- Passing tests establish that the implementation satisfies these test assertions in the tested environments. They do not prove that the assertions exhaustively model real-world evidence behavior or that the system is ready for consequential real-world investigations.
 
 ## 7. Conclusion
 
-The reconstructed E003 experiment passes all five focused tests and the full 749-test project suite in the available Python 3.13.5 environment.
+The reconstructed E003 experiment passes all five focused tests and the full 749-test project suite under CPython 3.14.10, satisfying the project's declared minimum Python version, on the stated IBM antiX environment. Earlier Python 3.13.5 results are retained as below-minimum-runtime compatibility observations.
 
 Within the tested synthetic paths, Samaritan preserves distinct record identities and provenance, rolls back the tested event-ID collision transaction, surfaces the tested proposition-role ambiguity, keeps occurrence and receipt timestamps distinct, and maintains separate receipt-time and event-time ordering.
 
 The strongest conclusion is not that the system can identify duplicate real-world occurrences or establish independent evidence. It is that **record identity, occurrence identity, and evidence independence must not be conflated**. The experiment supplies no basis for automatic deduplication or for treating separate records as independent corroboration.
 
-E003 remains a controlled software-behavior experiment. It does not validate Samaritan for consequential real-world use. A supported-runtime run under Python 3.14 or later remains outstanding.
+E003 remains a controlled software-behavior experiment. It does not validate Samaritan for consequential real-world use.
