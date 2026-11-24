@@ -19,6 +19,7 @@ from samaritan.database import Database
 from samaritan.hypothesis_generation import HypothesisGenerationEngine
 from samaritan.hypothesis_generation_contracts import HypothesisGenerationRule
 from samaritan.ingestion import IngestionService
+from samaritan.proposition_construction import PropositionConstructionError
 
 from test_e001_authentication_sequence import (
     _all_event_ids,
@@ -312,7 +313,7 @@ def test_e003_case_c_conflicting_attributes_preserve_records_and_surface_ambigui
     constructor, _ = _constructor(repository)
 
     with pytest.raises(
-        Exception, match="event-role selection is ambiguous"
+        PropositionConstructionError, match="event-role selection is ambiguous"
     ):
         constructor.construct(
             evidence_set, "account_authentication_sequence", 1
