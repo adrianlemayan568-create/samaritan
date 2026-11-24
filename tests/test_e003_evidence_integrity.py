@@ -19,6 +19,7 @@ from samaritan.database import Database
 from samaritan.hypothesis_generation import HypothesisGenerationEngine
 from samaritan.hypothesis_generation_contracts import HypothesisGenerationRule
 from samaritan.ingestion import IngestionService
+from samaritan.evaluation_contracts import EvidenceSet
 from samaritan.proposition_construction import PropositionConstructionError
 
 from test_e001_authentication_sequence import (
@@ -309,7 +310,17 @@ def test_e003_case_c_conflicting_attributes_preserve_records_and_surface_ambigui
         *_all_event_ids(first_ids),
         *_all_event_ids(conflicting_success),
     )
-    evidence_set = _evidence_set(event_ids)
+    evidence_set = EvidenceSet(
+        evidence_set_id=new_id(),
+        evidence=tuple(
+            [EvidenceReference(event_id=item) for item in event_ids]
+            + [
+                EvidenceReference(observation_id=first_observation_id),
+                EvidenceReference(observation_id=conflicting_observation_id),
+            ]
+        ),
+        created_at=NOW,
+    )
     constructor, _ = _constructor(repository)
 
     with pytest.raises(
@@ -399,9 +410,17 @@ def test_e003_case_e_delayed_historical_event_retains_receipt_and_event_order(
     assert len(correlations) == 2
     assert len(generated.hypotheses) == 1
 
-    evidence_set = _evidence_set(
-        event_ids,
-        observation_id=None,
+    evidence_set = EvidenceSet(
+        evidence_set_id=new_id(),
+        evidence=tuple(
+            [EvidenceReference(event_id=item) for item in event_ids]
+            + [
+                EvidenceReference(observation_id=success_observation_id),
+                EvidenceReference(observation_id=host_observation_id),
+                EvidenceReference(observation_id=failure_observation_id),
+            ]
+        ),
+        created_at=NOW,
     )
     constructor, _ = _constructor(repository)
     proposition = constructor.construct(
