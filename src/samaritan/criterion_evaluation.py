@@ -64,6 +64,29 @@ class CriterionEvaluationEngine:
         if type(evidence_set) is not EvidenceSet:
             raise TypeError("evidence_set must be an EvidenceSet")
 
+        # Authenticate the direct evaluator boundary independently of the
+        # higher-level hypothesis orchestration checks.
+        manifest = proposition.evidence_manifest
+        if (
+            evidence_set.evidence_set_id != manifest.evidence_set_id
+            or evidence_set.evidence != manifest.evidence
+        ):
+            raise ValueError(
+                "evaluation EvidenceSet must exactly match the proposition evidence manifest"
+            )
+
+        persisted_evidence_set = self.repository.get_evidence_set(
+            manifest.evidence_set_id
+        )
+        if (
+            type(persisted_evidence_set) is not EvidenceSet
+            or persisted_evidence_set.evidence_set_id != manifest.evidence_set_id
+            or persisted_evidence_set.evidence != manifest.evidence
+        ):
+            raise ValueError(
+                "proposition evidence manifest must match its persisted historical selection"
+            )
+
         evaluator = self.evaluator_registry.validate_criterion(criterion)
         declared_outcomes = set(self.evaluator_registry.output_codes_for(criterion))
         registered_outcomes = {

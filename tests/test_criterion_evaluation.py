@@ -899,3 +899,94 @@ def test_event_type_count_is_scoped_to_entity_and_proposition_temporal_window(tm
     assert finding.status == "matched"
     assert finding.outcome_code == "threshold_met"
     assert "Observed 2 events" in finding.rationale
+
+
+def _make_manifest_authentication_engine(repository):
+    """Build an evaluator whose registry must never be reached on bad manifests."""
+    evaluators = CriterionEvaluatorRegistry()
+    outcomes = CriterionOutcomeRegistry()
+    engine = CriterionEvaluationEngine(repository, evaluators, outcomes)
+    criterion = CriterionDefinition(
+        criterion_id="manifest-authentication",
+        criterion_type="manifest_authentication",
+        parameters_json="{}",
+        description="Exercise the direct EvidenceSet authentication boundary.",
+        independence_assertion_id="manifest-authentication",
+    )
+    return engine, criterion
+
+
+@pytest.mark.parametrize(
+    "tamper",
+    (
+        "wrong_id",
+        "missing_reference",
+        "additional_reference",
+    ),
+)
+def test_direct_criterion_evaluation_rejects_supplied_manifest_mismatch(
+    tmp_path, monkeypatch, tamper
+):
+    repository, proposition, evidence_set, event, _ = make_evaluation_context(tmp_path)
+    engine, criterion = _make_manifest_authentication_engine(repository)
+    if tamper == "wrong_id":
+        supplied = replace(evidence_set, evidence_set_id=new_id())
+    elif tamper == "missing_reference":
+        supplied = replace(evidence_set, evidence=())
+    else:
+        supplied = replace(
+            evidence_set,
+            evidence=evidence_set.evidence
+            + (EvidenceReference(observation_id=event.observation_id),),
+        )
+
+    def resolution_must_not_run(*args, **kwargs):
+        raise AssertionError("evidence resolution ran before manifest authentication")
+
+    monkeypatch.setattr(engine, "_resolve_evidence", resolution_must_not_run)
+    with pytest.raises(
+        ValueError,
+        match="must exactly match the proposition evidence manifest",
+    ):
+        engine.evaluate(criterion, proposition, supplied)
+
+
+def test_direct_criterion_evaluation_rejects_missing_persisted_evidence_set(
+    tmp_path, monkeypatch
+):
+    repository, proposition, evidence_set, _, _ = make_evaluation_context(tmp_path)
+    engine, criterion = _make_manifest_authentication_engine(repository)
+    monkeypatch.setattr(repository, "get_evidence_set", lambda evidence_set_id: None)
+
+    def resolution_must_not_run(*args, **kwargs):
+        raise AssertionError("evidence resolution ran before persisted manifest authentication")
+
+    monkeypatch.setattr(engine, "_resolve_evidence", resolution_must_not_run)
+    with pytest.raises(
+        ValueError,
+        match="must match its persisted historical selection",
+    ):
+        engine.evaluate(criterion, proposition, evidence_set)
+
+
+def test_direct_criterion_evaluation_rejects_persisted_evidence_set_mismatch(
+    tmp_path, monkeypatch
+):
+    repository, proposition, evidence_set, _, _ = make_evaluation_context(tmp_path)
+    engine, criterion = _make_manifest_authentication_engine(repository)
+    altered_persisted = replace(evidence_set, evidence=())
+    monkeypatch.setattr(
+        repository,
+        "get_evidence_set",
+        lambda evidence_set_id: altered_persisted,
+    )
+
+    def resolution_must_not_run(*args, **kwargs):
+        raise AssertionError("evidence resolution ran before persisted manifest authentication")
+
+    monkeypatch.setattr(engine, "_resolve_evidence", resolution_must_not_run)
+    with pytest.raises(
+        ValueError,
+        match="must match its persisted historical selection",
+    ):
+        engine.evaluate(criterion, proposition, evidence_set)
