@@ -133,9 +133,11 @@ def _generate(repository, event_ids, minimum_correlations):
         statement="The selected synthetic events form a candidate authentication sequence.",
         description="E003 controlled correlation-count comparison.",
     )
-    generated = HypothesisGenerationEngine(repository, (rule,)).generate(
-        correlations
-    )
+    generated = HypothesisGenerationEngine(
+        repository,
+        (rule,),
+        correlation_rules=_correlation_rules(),
+    ).generate(correlations)
     return correlations, generated
 
 

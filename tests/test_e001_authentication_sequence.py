@@ -197,7 +197,11 @@ def _pipeline(repository, event_ids_by_type, record_property=None):
         description="A failure, success, and host activity share an account identity in the configured time windows.",
     )
     started = perf_counter()
-    generated = HypothesisGenerationEngine(repository, (generation_rule,)).generate(correlations)
+    generated = HypothesisGenerationEngine(
+        repository,
+        (generation_rule,),
+        correlation_rules=_correlation_rules(),
+    ).generate(correlations)
     generation_seconds = perf_counter() - started
 
     if record_property is not None:

@@ -14,7 +14,11 @@ from samaritan.contracts import (
     Observation,
     new_id,
 )
-from samaritan.correlation_contracts import Correlation
+from samaritan.correlation import (
+    derive_correlation_facts,
+    resolve_participant_entities,
+)
+from samaritan.correlation_contracts import Correlation, CorrelationRule
 from samaritan.database import DatabaseIntegrityError
 from samaritan.hypothesis_generation_contracts import (
     HypothesisGeneration,
@@ -32,6 +36,8 @@ class HypothesisGenerationEngine:
         self,
         repository: Repository,
         rules: Iterable[HypothesisGenerationRule],
+        *,
+        correlation_rules: Iterable[CorrelationRule],
     ) -> None:
         if not isinstance(repository, Repository):
             raise TypeError("repository must be a Repository instance")
@@ -64,8 +70,37 @@ class HypothesisGenerationEngine:
         if len(rule_ids) != len(set(rule_ids)):
             raise ValueError("duplicate hypothesis generation rule IDs")
 
+        if isinstance(correlation_rules, (str, bytes)):
+            raise TypeError(
+                "correlation_rules must be an iterable of CorrelationRule objects"
+            )
+
+        try:
+            configured_correlation_rules = tuple(correlation_rules)
+        except TypeError as exc:
+            raise TypeError("correlation_rules must be iterable") from exc
+
+        if not configured_correlation_rules:
+            raise ValueError("at least one correlation rule is required")
+
+        if not all(
+            isinstance(rule, CorrelationRule)
+            for rule in configured_correlation_rules
+        ):
+            raise TypeError(
+                "correlation_rules must contain only CorrelationRule objects"
+            )
+
+        correlation_rule_ids = tuple(
+            rule.rule_id for rule in configured_correlation_rules
+        )
+
+        if len(correlation_rule_ids) != len(set(correlation_rule_ids)):
+            raise ValueError("duplicate correlation rule IDs")
+
         self.repository = repository
         self.rules = configured_rules
+        self.correlation_rules = configured_correlation_rules
 
     def generate(
         self,
@@ -229,6 +264,46 @@ class HypothesisGenerationEngine:
                         "repository returned an observation with an "
                         f"unexpected ID: {observation_id}"
                     )
+
+        entities = resolve_participant_entities(
+            self.repository,
+            tuple(event_cache.values()),
+        )
+
+        for correlation in correlations:
+            first_event = event_cache[correlation.event_ids[0]]
+            second_event = event_cache[correlation.event_ids[1]]
+            facts = derive_correlation_facts(
+                first_event,
+                second_event,
+                entities,
+                self.correlation_rules,
+            )
+
+            if facts is None:
+                raise DatabaseIntegrityError(
+                    "correlation claims no match under the configured "
+                    "correlation rules"
+                )
+
+            expected_shared_ids, expected_rules, expected_time_delta = facts
+
+            if correlation.shared_entity_ids != expected_shared_ids:
+                raise DatabaseIntegrityError(
+                    "correlation shared entity claims do not match "
+                    "persisted event participants"
+                )
+
+            if correlation.time_delta_seconds != expected_time_delta:
+                raise DatabaseIntegrityError(
+                    "correlation time delta does not match persisted events"
+                )
+
+            if correlation.matched_rules != expected_rules:
+                raise DatabaseIntegrityError(
+                    "correlation matched rules do not match configured "
+                    "correlation rules and persisted events"
+                )
 
     def _get_required_event(self, event_id: str) -> Event:
         """Retrieve an event or raise an integrity error if missing."""
