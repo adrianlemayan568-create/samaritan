@@ -19,10 +19,12 @@ from samaritan.reasoning_contracts import (
     HypothesisSpecification,
 )
 from samaritan.repository import Repository
+from samaritan.proposition_construction_contracts import PropositionConstructionRegistry
 from samaritan.proposition_contracts import (
     CURRENT_PROPOSITION_IDENTITY_ALGORITHM,
     Proposition,
 )
+from samaritan.proposition_validation import PropositionProvenanceValidator
 from samaritan.proposition_semantics import (
     PropositionSemanticsRegistry,
     build_default_proposition_semantics_registry,
@@ -44,6 +46,7 @@ class HypothesisEvaluationEngine:
         evaluator_registry: CriterionEvaluatorRegistry,
         outcome_registry: CriterionOutcomeRegistry,
         rule_registry: HypothesisEvaluationRuleRegistry,
+        construction_registry: PropositionConstructionRegistry,
         semantics_registry: PropositionSemanticsRegistry | None = None,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
@@ -51,39 +54,29 @@ class HypothesisEvaluationEngine:
             raise TypeError("clock must be callable")
         if type(rule_registry) is not HypothesisEvaluationRuleRegistry:
             raise TypeError("rule_registry must be a HypothesisEvaluationRuleRegistry")
+        if type(construction_registry) is not PropositionConstructionRegistry:
+            raise TypeError("construction_registry must be a PropositionConstructionRegistry")
         if semantics_registry is None:
             semantics_registry = build_default_proposition_semantics_registry()
         if type(semantics_registry) is not PropositionSemanticsRegistry:
             raise TypeError("semantics_registry must be a PropositionSemanticsRegistry")
         self.clock = clock if clock is not None else (lambda: datetime.now(timezone.utc))
         self.repository = repository
+        self.provenance_validator = PropositionProvenanceValidator(
+            repository, semantics_registry, construction_registry
+        )
         self.criterion_engine = CriterionEvaluationEngine(
             repository,
             evaluator_registry,
             outcome_registry,
+            provenance_validator=self.provenance_validator,
             clock=self.clock,
         )
-        semantics_registry.freeze()
         self.semantics_registry = semantics_registry
         self.outcome_registry = outcome_registry
         rule_registry.freeze()
         self.rule_registry = rule_registry
         self.synthesizer = DiagnosticitySynthesizer()
-
-    def _authenticate_evidence_manifest(self, proposition: Proposition) -> None:
-        """Require a proposition's manifest to match its persisted construction selection."""
-        manifest = proposition.evidence_manifest
-        persisted_evidence_set = self.repository.get_evidence_set(
-            manifest.evidence_set_id
-        )
-        if (
-            persisted_evidence_set is None
-            or persisted_evidence_set.evidence_set_id != manifest.evidence_set_id
-            or persisted_evidence_set.evidence != manifest.evidence
-        ):
-            raise ValueError(
-                "proposition evidence manifest must match its persisted historical selection"
-            )
 
     def evaluate(
         self,
@@ -117,7 +110,7 @@ class HypothesisEvaluationEngine:
             *(item.proposition for item in specification.alternatives),
         )
         for proposition in propositions:
-            self._authenticate_evidence_manifest(proposition)
+            self.provenance_validator.validate(proposition)
 
         # A fingerprint supplied by a Proposition is only a claim until
         # checked against the authoritative semantics registry. Evaluation

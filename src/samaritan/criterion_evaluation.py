@@ -18,6 +18,7 @@ from samaritan.reasoning_contracts import (
     CriterionOutcomeRegistry,
 )
 from samaritan.proposition_contracts import Proposition
+from samaritan.proposition_validation import PropositionProvenanceValidator
 from samaritan.repository import Repository
 
 
@@ -33,6 +34,7 @@ class CriterionEvaluationEngine:
         repository: Repository,
         evaluator_registry: CriterionEvaluatorRegistry,
         outcome_registry: CriterionOutcomeRegistry,
+        provenance_validator: PropositionProvenanceValidator,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         if type(repository) is not Repository:
@@ -41,6 +43,8 @@ class CriterionEvaluationEngine:
             raise TypeError("evaluator_registry must be a CriterionEvaluatorRegistry")
         if type(outcome_registry) is not CriterionOutcomeRegistry:
             raise TypeError("outcome_registry must be a CriterionOutcomeRegistry")
+        if type(provenance_validator) is not PropositionProvenanceValidator:
+            raise TypeError("provenance_validator must be a PropositionProvenanceValidator")
         if clock is not None and not callable(clock):
             raise TypeError("clock must be callable")
         evaluator_registry.freeze()
@@ -48,6 +52,7 @@ class CriterionEvaluationEngine:
         self.repository = repository
         self.evaluator_registry = evaluator_registry
         self.outcome_registry = outcome_registry
+        self.provenance_validator = provenance_validator
         self.clock = clock if clock is not None else (lambda: datetime.now(timezone.utc))
 
     def evaluate(
@@ -86,6 +91,10 @@ class CriterionEvaluationEngine:
             raise ValueError(
                 "proposition evidence manifest must match its persisted historical selection"
             )
+
+        # Authenticate semantic and source provenance before registry dispatch,
+        # evidence resolution, or criterion execution.
+        self.provenance_validator.validate(proposition)
 
         evaluator = self.evaluator_registry.validate_criterion(criterion)
         declared_outcomes = set(self.evaluator_registry.output_codes_for(criterion))

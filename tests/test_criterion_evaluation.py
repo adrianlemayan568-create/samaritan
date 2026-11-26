@@ -50,10 +50,45 @@ from samaritan.proposition_semantics import (
     PropositionRoleDefinition,
     PropositionSemantics,
     PropositionSemanticsRegistry,
+    SemanticParameterDefinition,
 )
 from samaritan.proposition_semantics_fingerprint import proposition_semantics_fingerprint
+from samaritan.proposition_construction import PropositionConstructor
+from samaritan.proposition_construction_contracts import (
+    EventAttributeParameterBinding,
+    EventRoleBinding,
+    EntityRoleBinding,
+    ParticipantRoleBinding,
+    PropositionConstructionDefinition,
+    PropositionConstructionRegistry,
+)
+from samaritan.proposition_validation import PropositionProvenanceValidator
 
 
+
+
+def _test_construction_registry():
+    registry = PropositionConstructionRegistry()
+    registry.register(
+        PropositionConstructionDefinition(
+            construction_id="test-construction",
+            construction_version=1,
+            proposition_type="test_authentication",
+            semantics_version=1,
+            event_bindings=(
+                EventRoleBinding("success_event", "authentication_success"),
+            ),
+            entity_bindings=(),
+            description="Construct the test authentication proposition from its source event.",
+        )
+    )
+    return registry
+
+
+def _test_provenance_validator(repository, semantics_registry):
+    return PropositionProvenanceValidator(
+        repository, semantics_registry, _test_construction_registry()
+    )
 
 
 def make_evaluation_context(tmp_path):
@@ -75,6 +110,12 @@ def make_evaluation_context(tmp_path):
         raw_payload="{}",
         payload_sha256=payload_checksum("{}"),
     )
+    account = Entity(
+        entity_id=new_id(),
+        entity_type="user_account",
+        canonical_identifier="criterion-test-account",
+        created_at=now,
+    )
     event = Event(
         event_id=new_id(),
         observation_id=observation.observation_id,
@@ -82,9 +123,9 @@ def make_evaluation_context(tmp_path):
         occurred_at=now,
         original_timestamp="2026-11-20T10:00:00Z",
         normalized_data_json='{"result":"success"}',
-        participants=(),
+        participants=(EventParticipant(account.entity_id, "target"),),
     )
-    repository.persist_observation(observation, events=(event,))
+    repository.persist_observation(observation, entities=(account,), events=(event,))
     semantics = PropositionSemantics(
         proposition_type="test_authentication",
         semantics_version=1,
@@ -100,54 +141,20 @@ def make_evaluation_context(tmp_path):
     )
     semantics_registry = PropositionSemanticsRegistry()
     semantics_registry.register(semantics)
-    semantics_fingerprint = proposition_semantics_fingerprint(semantics)
-    evidence_set_id = new_id()
-    proposition = Proposition(
-        proposition_id=deterministic_proposition_id(
-            "test_authentication",
-            1,
-            (PropositionRoleValue(
-                "success_event", "event", event.event_id, event.occurred_at
-            ),),
-            PropositionTemporalScope(now, now),
-            semantics_fingerprint=semantics_fingerprint,
-            identity_algorithm_version=CURRENT_PROPOSITION_IDENTITY_ALGORITHM,
-        ),
-        proposition_type="test_authentication",
-        semantics_version=1,
-        roles=(
-            PropositionRoleValue(
-                "success_event", "event", event.event_id, event.occurred_at
-            ),
-        ),
-        temporal_scope=PropositionTemporalScope(now, now),
-        field_provenance=(
-            PropositionFieldProvenance(
-                "success_event",
-                (event.event_id,),
-                (observation.observation_id,),
-            ),
-        ),
-        construction_id="test-construction",
-        construction_version=1,
-        semantics_fingerprint=semantics_fingerprint,
-        identity_algorithm_version=CURRENT_PROPOSITION_IDENTITY_ALGORITHM,
-        evidence_manifest=PropositionEvidenceManifest(
-            evidence_set_id=evidence_set_id,
-            evidence=(EvidenceReference(event_id=event.event_id),),
-        ),
-    )
     evidence_set = EvidenceSet(
-        evidence_set_id=evidence_set_id,
+        evidence_set_id=new_id(),
         evidence=(EvidenceReference(event_id=event.event_id),),
         created_at=now,
     )
     repository.persist_evidence_set(evidence_set)
+    constructor = PropositionConstructor(
+        repository, semantics_registry, _test_construction_registry()
+    )
+    proposition = constructor.construct(evidence_set, "test-construction", 1)
     return repository, proposition, evidence_set, event, semantics_registry
 
-
 def test_registered_event_attribute_evaluator_returns_stance_neutral_finding(tmp_path):
-    repository, proposition, evidence_set, event, _ = make_evaluation_context(tmp_path)
+    repository, proposition, evidence_set, event, semantics_registry = make_evaluation_context(tmp_path)
     parameters = (
         CriterionParameterDefinition("event_role", "string", required=True),
         CriterionParameterDefinition("attribute_name", "string", required=True),
@@ -184,7 +191,9 @@ def test_registered_event_attribute_evaluator_returns_stance_neutral_finding(tmp
     ))
     fixed_time = datetime(2026, 11, 21, 12, 0, tzinfo=timezone.utc)
     engine = CriterionEvaluationEngine(
-        repository, evaluators, outcomes, clock=lambda: fixed_time
+        repository, evaluators, outcomes,
+        provenance_validator=_test_provenance_validator(repository, semantics_registry),
+        clock=lambda: fixed_time,
     )
     finding = engine.evaluate(criterion, proposition, evidence_set)
     repeated = engine.evaluate(criterion, proposition, evidence_set)
@@ -279,44 +288,9 @@ def test_hypothesis_evaluation_engine_runs_findings_and_synthesis_end_to_end(tmp
         created_at=event.occurred_at,
     )
     repository.persist_evidence_set(alternative_evidence_set)
-    alternative_event_id = alternative_event.event_id
-    alternative_observation_id = alternative_observation.observation_id
-    alternative_roles = (
-        PropositionRoleValue(
-            "success_event", "event", alternative_event_id, event.occurred_at
-        ),
-    )
-    alternative_scope = proposition.temporal_scope
-    alternative_provenance = (
-        PropositionFieldProvenance(
-            "success_event",
-            (alternative_event_id,),
-            (alternative_observation_id,),
-        ),
-    )
-    alternative_proposition = Proposition(
-        proposition_id=deterministic_proposition_id(
-            proposition.proposition_type,
-            proposition.semantics_version,
-            alternative_roles,
-            alternative_scope,
-            semantics_fingerprint=proposition.semantics_fingerprint,
-            identity_algorithm_version=proposition.identity_algorithm_version,
-        ),
-        proposition_type=proposition.proposition_type,
-        semantics_version=proposition.semantics_version,
-        roles=alternative_roles,
-        temporal_scope=alternative_scope,
-        field_provenance=alternative_provenance,
-        construction_id=proposition.construction_id,
-        construction_version=proposition.construction_version,
-        semantics_fingerprint=proposition.semantics_fingerprint,
-        identity_algorithm_version=proposition.identity_algorithm_version,
-        evidence_manifest=PropositionEvidenceManifest(
-            evidence_set_id=alternative_evidence_set.evidence_set_id,
-            evidence=alternative_evidence_set.evidence,
-        ),
-    )
+    alternative_proposition = PropositionConstructor(
+        repository, semantics_registry, _test_construction_registry()
+    ).construct(alternative_evidence_set, "test-construction", 1)
     alternative = HypothesisAlternative(
         alternative_id=new_id(),
         proposition=alternative_proposition,
@@ -400,6 +374,7 @@ def test_hypothesis_evaluation_engine_runs_findings_and_synthesis_end_to_end(tmp
         evaluators,
         outcomes,
         rule_registry,
+        construction_registry=_test_construction_registry(),
         semantics_registry=semantics_registry,
         clock=lambda: fixed_time,
     )
@@ -413,6 +388,23 @@ def test_hypothesis_evaluation_engine_runs_findings_and_synthesis_end_to_end(tmp
     assert record.evidence_set_id == evidence_set.evidence_set_id
     assert record.findings[0].status == "matched"
     assert record.synthesis.outcome == "supported"
+
+    forged_alternative = replace(
+        alternative,
+        proposition=replace(alternative_proposition, construction_version=2),
+    )
+    forged_alternative_specification = replace(
+        specification, alternatives=(forged_alternative,)
+    )
+
+    def evaluator_must_not_run(_evidence):
+        raise AssertionError("criterion evidence resolution ran before alternative authentication")
+
+    monkeypatch.setattr(
+        engine.criterion_engine, "_resolve_evidence", evaluator_must_not_run
+    )
+    with pytest.raises(ValueError, match="unknown proposition construction"):
+        engine.evaluate(forged_alternative_specification, evidence_set)
 
     # An alternative's construction history is authenticated independently
     # from the focal EvidenceSet used for comparative criterion evaluation.
@@ -432,7 +424,7 @@ def test_hypothesis_evaluation_engine_runs_findings_and_synthesis_end_to_end(tmp
     )
     with pytest.raises(
         ValueError,
-        match="proposition evidence manifest must match its persisted historical selection",
+        match="evidence manifest references an EvidenceSet that is not persisted",
     ):
         engine.evaluate(missing_alternative_specification, evidence_set)
 
@@ -452,7 +444,7 @@ def test_hypothesis_evaluation_engine_runs_findings_and_synthesis_end_to_end(tmp
     )
     with pytest.raises(
         ValueError,
-        match="proposition evidence manifest must match its persisted historical selection",
+        match="evidence manifest does not match the persisted EvidenceSet selection",
     ):
         engine.evaluate(mismatched_alternative_specification, evidence_set)
 
@@ -468,6 +460,7 @@ def test_hypothesis_evaluation_engine_runs_findings_and_synthesis_end_to_end(tmp
         evaluators,
         outcomes,
         HypothesisEvaluationRuleRegistry(),
+        construction_registry=_test_construction_registry(),
         semantics_registry=semantics_registry,
         clock=lambda: fixed_time,
     )
@@ -560,7 +553,7 @@ def test_hypothesis_evaluation_engine_runs_findings_and_synthesis_end_to_end(tmp
 
 def test_missing_registered_attribute_is_insufficient_not_a_negative_finding(tmp_path):
 
-    repository, proposition, evidence_set, _, _ = make_evaluation_context(tmp_path)
+    repository, proposition, evidence_set, _, semantics_registry = make_evaluation_context(tmp_path)
     parameters = (
         CriterionParameterDefinition("event_role", "string", required=True),
         CriterionParameterDefinition("attribute_name", "string", required=True),
@@ -589,7 +582,8 @@ def test_missing_registered_attribute_is_insufficient_not_a_negative_finding(tmp
         meaning="The registered normalized event attribute is present.",
     ))
     finding = CriterionEvaluationEngine(
-        repository, evaluators, outcomes
+        repository, evaluators, outcomes,
+        provenance_validator=_test_provenance_validator(repository, semantics_registry),
     ).evaluate(criterion, proposition, evidence_set)
 
     assert finding.status == "insufficient"
@@ -598,7 +592,7 @@ def test_missing_registered_attribute_is_insufficient_not_a_negative_finding(tmp
 
 
 def test_direct_criterion_engine_rejects_missing_evaluator_outcomes_before_execution(tmp_path, monkeypatch):
-    repository, proposition, evidence_set, _, _ = make_evaluation_context(tmp_path)
+    repository, proposition, evidence_set, _, semantics_registry = make_evaluation_context(tmp_path)
     parameters = (
         CriterionParameterDefinition("event_role", "string", required=True),
         CriterionParameterDefinition("attribute_name", "string", required=True),
@@ -620,7 +614,8 @@ def test_direct_criterion_engine_rejects_missing_evaluator_outcomes_before_execu
         description="Check for a registered normalized event attribute.",
     ))
     engine = CriterionEvaluationEngine(
-        repository, evaluators, CriterionOutcomeRegistry()
+        repository, evaluators, CriterionOutcomeRegistry(),
+        provenance_validator=_test_provenance_validator(repository, semantics_registry),
     )
 
     def unexpected_evidence_resolution(_evidence):
@@ -635,9 +630,7 @@ def test_direct_criterion_engine_rejects_missing_evaluator_outcomes_before_execu
 
 
 def test_temporal_gap_reports_ordering_violation_separately(tmp_path):
-    from samaritan.proposition_contracts import PropositionEvidenceManifest
-
-    repository, proposition, _, original_event, _ = make_evaluation_context(tmp_path)
+    repository, _, _, original_event, _ = make_evaluation_context(tmp_path)
     now = original_event.occurred_at
     source = Source(
         source_id=new_id(),
@@ -645,7 +638,6 @@ def test_temporal_gap_reports_ordering_violation_separately(tmp_path):
         name="temporal ordering test",
         created_at=now,
     )
-    repository.register_source(source)
     later_observation = Observation(
         observation_id=new_id(),
         source_id=source.source_id,
@@ -656,69 +648,76 @@ def test_temporal_gap_reports_ordering_violation_separately(tmp_path):
     later_event = Event(
         event_id=new_id(),
         observation_id=later_observation.observation_id,
-        event_type="authentication_success",
+        event_type="authentication_failure",
         occurred_at=now + timedelta(seconds=30),
         original_timestamp=(now + timedelta(seconds=30)).isoformat().replace("+00:00", "Z"),
         normalized_data_json="{}",
         participants=(),
     )
+    repository.register_source(source)
     repository.persist_observation(later_observation, events=(later_event,))
-    roles = (
-        PropositionRoleValue("earlier_event", "event", later_event.event_id, later_event.occurred_at),
-        PropositionRoleValue("later_event", "event", original_event.event_id, original_event.occurred_at),
-    )
-    scope = PropositionTemporalScope(now, later_event.occurred_at)
-    provenance = (
-        PropositionFieldProvenance(
-            "earlier_event", (later_event.event_id,), (later_observation.observation_id,)
-        ),
-        PropositionFieldProvenance(
-            "later_event", (original_event.event_id,), (original_event.observation_id,)
-        ),
-    )
-    evidence = (
-        EvidenceReference(event_id=original_event.event_id),
-        EvidenceReference(event_id=later_event.event_id),
-    )
-    proposition = Proposition(
-        proposition_id=deterministic_proposition_id(
-            proposition.proposition_type,
-            proposition.semantics_version,
-            roles,
-            scope,
-            semantics_fingerprint=proposition.semantics_fingerprint,
-            identity_algorithm_version=proposition.identity_algorithm_version,
-        ),
-        proposition_type=proposition.proposition_type,
-        semantics_version=proposition.semantics_version,
-        roles=roles,
-        temporal_scope=scope,
-        field_provenance=provenance,
-        construction_id=proposition.construction_id,
-        construction_version=proposition.construction_version,
-        semantics_fingerprint=proposition.semantics_fingerprint,
-        identity_algorithm_version=proposition.identity_algorithm_version,
-        evidence_manifest=PropositionEvidenceManifest(
-            evidence_set_id=new_id(), evidence=evidence
+
+    semantics = PropositionSemantics(
+        proposition_type="temporal_ordering_test",
+        semantics_version=1,
+        roles=(
+            PropositionRoleDefinition(
+                role_name="earlier_event",
+                role_kind="event",
+                cardinality="one",
+                event_type="authentication_failure",
+                meaning="The event assigned to the earlier semantic role.",
+            ),
+            PropositionRoleDefinition(
+                role_name="later_event",
+                role_kind="event",
+                cardinality="one",
+                event_type="authentication_success",
+                meaning="The event assigned to the later semantic role.",
+            ),
         ),
     )
-    selected = EvidenceSet(
-        evidence_set_id=proposition.evidence_manifest.evidence_set_id,
-        evidence=evidence,
+    semantics_registry = PropositionSemanticsRegistry()
+    semantics_registry.register(semantics)
+    construction_registry = PropositionConstructionRegistry()
+    construction_registry.register(
+        PropositionConstructionDefinition(
+            construction_id="temporal-ordering-test",
+            construction_version=1,
+            proposition_type="temporal_ordering_test",
+            semantics_version=1,
+            event_bindings=(
+                EventRoleBinding("earlier_event", "authentication_failure"),
+                EventRoleBinding("later_event", "authentication_success"),
+            ),
+            entity_bindings=(),
+            description="Bind event roles to distinct source event types.",
+        )
+    )
+    evidence_set = EvidenceSet(
+        evidence_set_id=new_id(),
+        evidence=(
+            EvidenceReference(event_id=original_event.event_id),
+            EvidenceReference(event_id=later_event.event_id),
+        ),
         created_at=now + timedelta(minutes=1),
     )
-    repository.persist_evidence_set(selected)
+    repository.persist_evidence_set(evidence_set)
+    proposition = PropositionConstructor(
+        repository, semantics_registry, construction_registry
+    ).construct(evidence_set, "temporal-ordering-test", 1)
+
     parameters = (
         CriterionParameterDefinition("earlier_event_role", "string", required=True),
         CriterionParameterDefinition("later_event_role", "string", required=True),
         CriterionParameterDefinition("maximum_seconds", "integer", required=True),
     )
     criterion = CriterionDefinition(
-        criterion_id="strict-temporal-order",
-        criterion_type="temporal_order",
+        criterion_id="temporal-ordering",
+        criterion_type="temporal_gap",
         parameters_json='{"earlier_event_role":"earlier_event","later_event_role":"later_event","maximum_seconds":60}',
-        description="The earlier event must strictly precede the later event.",
-        independence_assertion_id="temporal-order-source",
+        description="Check strict event ordering and maximum elapsed seconds.",
+        independence_assertion_id="temporal-event-order",
         parameter_definitions=parameters,
     )
     evaluators = CriterionEvaluatorRegistry()
@@ -737,13 +736,15 @@ def test_temporal_gap_reports_ordering_violation_separately(tmp_path):
             meaning=f"Temporal outcome {code}.",
         ))
 
-    finding = CriterionEvaluationEngine(repository, evaluators, outcomes).evaluate(
-        criterion, proposition, selected
-    )
+    finding = CriterionEvaluationEngine(
+        repository, evaluators, outcomes,
+        provenance_validator=PropositionProvenanceValidator(
+            repository, semantics_registry, construction_registry
+        ),
+    ).evaluate(criterion, proposition, evidence_set)
 
     assert finding.status == "not_matched"
     assert finding.outcome_code == "ordering_violation"
-
 
 def test_event_type_count_is_scoped_to_entity_and_proposition_temporal_window(tmp_path):
     repository, base_proposition, _, success_event, _ = make_evaluation_context(tmp_path)
@@ -755,10 +756,9 @@ def test_event_type_count_is_scoped_to_entity_and_proposition_temporal_window(tm
         created_at=now,
     )
     repository.register_source(source)
-    alice = Entity(
-        entity_id=new_id(), entity_type="user_account",
-        canonical_identifier="alice-count-scope", created_at=now,
-    )
+    alice = repository.get_entities_by_ids(
+        (success_event.participants[0].entity_id,)
+    )[0]
     bob = Entity(
         entity_id=new_id(), entity_type="user_account",
         canonical_identifier="bob-count-scope", created_at=now,
@@ -817,6 +817,25 @@ def test_event_type_count_is_scoped_to_entity_and_proposition_temporal_window(tm
     )
     semantics_registry = PropositionSemanticsRegistry()
     semantics_registry.register(semantics)
+    construction_registry = PropositionConstructionRegistry()
+    construction_registry.register(
+        PropositionConstructionDefinition(
+            construction_id="entity-scoped-test",
+            construction_version=1,
+            proposition_type=semantics.proposition_type,
+            semantics_version=semantics.semantics_version,
+            event_bindings=(
+                EventRoleBinding("success_event", "authentication_success"),
+            ),
+            entity_bindings=(
+                EntityRoleBinding(
+                    "account",
+                    (ParticipantRoleBinding("success_event", "target"),),
+                ),
+            ),
+            description="Bind the account to the target participant of the success event.",
+        )
+    )
     fingerprint = proposition_semantics_fingerprint(semantics)
     roles = (
         PropositionRoleValue("account", "entity", alice.entity_id),
@@ -894,20 +913,26 @@ def test_event_type_count_is_scoped_to_entity_and_proposition_temporal_window(tm
             meaning=f"Event-count outcome {code}.",
         ))
 
-    finding = CriterionEvaluationEngine(repository, evaluators, outcomes).evaluate(
-        criterion, proposition, evidence_set
-    )
+    finding = CriterionEvaluationEngine(
+        repository, evaluators, outcomes,
+        provenance_validator=PropositionProvenanceValidator(
+            repository, semantics_registry, construction_registry
+        ),
+    ).evaluate(criterion, proposition, evidence_set)
 
     assert finding.status == "matched"
     assert finding.outcome_code == "threshold_met"
     assert "Observed 2 events" in finding.rationale
 
 
-def _make_manifest_authentication_engine(repository):
+def _make_manifest_authentication_engine(repository, provenance_validator):
     """Build an evaluator whose registry must never be reached on bad manifests."""
     evaluators = CriterionEvaluatorRegistry()
     outcomes = CriterionOutcomeRegistry()
-    engine = CriterionEvaluationEngine(repository, evaluators, outcomes)
+    engine = CriterionEvaluationEngine(
+        repository, evaluators, outcomes,
+        provenance_validator=provenance_validator,
+    )
     criterion = CriterionDefinition(
         criterion_id="manifest-authentication",
         criterion_type="manifest_authentication",
@@ -929,8 +954,10 @@ def _make_manifest_authentication_engine(repository):
 def test_direct_criterion_evaluation_rejects_supplied_manifest_mismatch(
     tmp_path, monkeypatch, tamper
 ):
-    repository, proposition, evidence_set, event, _ = make_evaluation_context(tmp_path)
-    engine, criterion = _make_manifest_authentication_engine(repository)
+    repository, proposition, evidence_set, event, semantics_registry = make_evaluation_context(tmp_path)
+    engine, criterion = _make_manifest_authentication_engine(
+        repository, _test_provenance_validator(repository, semantics_registry)
+    )
     if tamper == "wrong_id":
         supplied = replace(evidence_set, evidence_set_id=new_id())
     elif tamper == "missing_reference":
@@ -956,8 +983,10 @@ def test_direct_criterion_evaluation_rejects_supplied_manifest_mismatch(
 def test_direct_criterion_evaluation_rejects_missing_persisted_evidence_set(
     tmp_path, monkeypatch
 ):
-    repository, proposition, evidence_set, _, _ = make_evaluation_context(tmp_path)
-    engine, criterion = _make_manifest_authentication_engine(repository)
+    repository, proposition, evidence_set, _, semantics_registry = make_evaluation_context(tmp_path)
+    engine, criterion = _make_manifest_authentication_engine(
+        repository, _test_provenance_validator(repository, semantics_registry)
+    )
     monkeypatch.setattr(repository, "get_evidence_set", lambda evidence_set_id: None)
 
     def resolution_must_not_run(*args, **kwargs):
@@ -974,8 +1003,10 @@ def test_direct_criterion_evaluation_rejects_missing_persisted_evidence_set(
 def test_direct_criterion_evaluation_rejects_persisted_evidence_set_mismatch(
     tmp_path, monkeypatch
 ):
-    repository, proposition, evidence_set, _, _ = make_evaluation_context(tmp_path)
-    engine, criterion = _make_manifest_authentication_engine(repository)
+    repository, proposition, evidence_set, _, semantics_registry = make_evaluation_context(tmp_path)
+    engine, criterion = _make_manifest_authentication_engine(
+        repository, _test_provenance_validator(repository, semantics_registry)
+    )
     altered_persisted = replace(evidence_set, evidence=())
     monkeypatch.setattr(
         repository,
@@ -992,3 +1023,157 @@ def test_direct_criterion_evaluation_rejects_persisted_evidence_set_mismatch(
         match="must match its persisted historical selection",
     ):
         engine.evaluate(criterion, proposition, evidence_set)
+
+
+
+@pytest.mark.parametrize(
+    ("tamper", "message"),
+    (
+        ("event_role", "event role presence or value does not match manifest selection"),
+        ("construction_version", "unknown proposition construction"),
+        ("semantics_fingerprint", "fingerprint does not match"),
+        ("temporal_scope", "temporal scope does not match"),
+    ),
+)
+def test_direct_criterion_evaluation_rejects_forged_proposition_provenance(
+    tmp_path, monkeypatch, tamper, message
+):
+    repository, proposition, evidence_set, event, semantics_registry = make_evaluation_context(tmp_path)
+    if tamper == "event_role":
+        forged_role = PropositionRoleValue(
+            "success_event", "event", new_id(), event.occurred_at
+        )
+        candidate = replace(
+            proposition,
+            roles=(forged_role,),
+            field_provenance=(
+                PropositionFieldProvenance(
+                    "success_event", (forged_role.value_id,), (event.observation_id,)
+                ),
+            ),
+        )
+    elif tamper == "construction_version":
+        candidate = replace(proposition, construction_version=2)
+    elif tamper == "semantics_fingerprint":
+        candidate = replace(proposition, semantics_fingerprint="forged-semantics-fingerprint")
+    else:
+        candidate = replace(
+            proposition,
+            temporal_scope=PropositionTemporalScope(
+                event.occurred_at - timedelta(seconds=1), event.occurred_at
+            ),
+        )
+
+    candidate = replace(
+        candidate,
+        proposition_id=deterministic_proposition_id(
+            candidate.proposition_type,
+            candidate.semantics_version,
+            candidate.roles,
+            candidate.temporal_scope,
+            candidate.parameters_json,
+            semantics_fingerprint=candidate.semantics_fingerprint,
+            identity_algorithm_version=candidate.identity_algorithm_version,
+        ),
+    )
+    engine, criterion = _make_manifest_authentication_engine(
+        repository, _test_provenance_validator(repository, semantics_registry)
+    )
+
+    def resolution_must_not_run(*args, **kwargs):
+        raise AssertionError("evidence resolution ran before proposition provenance authentication")
+
+    monkeypatch.setattr(engine, "_resolve_evidence", resolution_must_not_run)
+    with pytest.raises(ValueError, match=message):
+        engine.evaluate(criterion, candidate, evidence_set)
+
+
+
+@pytest.mark.parametrize("tamper", ("parameter_value", "field_provenance"))
+def test_direct_criterion_evaluation_rejects_forged_parameter_provenance(
+    tmp_path, tamper
+):
+    repository, _, evidence_set, event, _ = make_evaluation_context(tmp_path)
+    semantics = PropositionSemantics(
+        proposition_type="parameter_provenance_test",
+        semantics_version=1,
+        roles=(
+            PropositionRoleDefinition(
+                role_name="success_event",
+                role_kind="event",
+                cardinality="one",
+                event_type="authentication_success",
+                meaning="The successful authentication event.",
+            ),
+        ),
+        parameters=(
+            SemanticParameterDefinition(
+                parameter_name="result",
+                value_type="string",
+                required=True,
+                meaning="The normalized result recorded by the source event.",
+            ),
+        ),
+    )
+    semantics_registry = PropositionSemanticsRegistry()
+    semantics_registry.register(semantics)
+    construction_registry = PropositionConstructionRegistry()
+    construction_registry.register(
+        PropositionConstructionDefinition(
+            construction_id="parameter-provenance-test",
+            construction_version=1,
+            proposition_type=semantics.proposition_type,
+            semantics_version=semantics.semantics_version,
+            event_bindings=(
+                EventRoleBinding("success_event", "authentication_success"),
+            ),
+            entity_bindings=(),
+            event_attribute_bindings=(
+                EventAttributeParameterBinding(
+                    "result",
+                    "success_event",
+                    "result",
+                    "Bind the result parameter to the normalized event attribute.",
+                ),
+            ),
+            description="Construct a result parameter from the source event.",
+        )
+    )
+    proposition = PropositionConstructor(
+        repository, semantics_registry, construction_registry
+    ).construct(evidence_set, "parameter-provenance-test", 1)
+
+    if tamper == "parameter_value":
+        candidate = replace(proposition, parameters_json='{"result":"failure"}')
+        expected_message = "parameter value does not match shared source selection"
+    else:
+        altered_provenance = replace(
+            proposition.field_provenance[0],
+            observation_ids=(new_id(),),
+        )
+        candidate = replace(
+            proposition,
+            field_provenance=(altered_provenance, *proposition.field_provenance[1:]),
+        )
+        expected_message = "event and observation provenance disagree"
+
+    candidate = replace(
+        candidate,
+        proposition_id=deterministic_proposition_id(
+            candidate.proposition_type,
+            candidate.semantics_version,
+            candidate.roles,
+            candidate.temporal_scope,
+            candidate.parameters_json,
+            semantics_fingerprint=candidate.semantics_fingerprint,
+            identity_algorithm_version=candidate.identity_algorithm_version,
+        ),
+    )
+    engine, criterion = _make_manifest_authentication_engine(
+        repository,
+        PropositionProvenanceValidator(
+            repository, semantics_registry, construction_registry
+        ),
+    )
+    with pytest.raises(ValueError, match=expected_message):
+        engine.evaluate(criterion, candidate, evidence_set)

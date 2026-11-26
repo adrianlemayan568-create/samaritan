@@ -314,6 +314,7 @@ def _evaluate_neutrally(repository, semantics, focal, focal_set, alternative, ge
         evaluators,
         outcomes,
         registry,
+        construction_registry=build_default_proposition_construction_registry(),
         semantics_registry=semantics,
         clock=lambda: FIXED_EVALUATION_TIME,
     )
