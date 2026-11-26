@@ -17,7 +17,10 @@ from samaritan.reasoning_contracts import (
     CriterionFinding,
     CriterionOutcomeRegistry,
 )
-from samaritan.proposition_contracts import Proposition
+from samaritan.proposition_contracts import (
+    CURRENT_PROPOSITION_IDENTITY_ALGORITHM,
+    Proposition,
+)
 from samaritan.proposition_validation import PropositionProvenanceValidator
 from samaritan.repository import Repository
 
@@ -68,6 +71,13 @@ class CriterionEvaluationEngine:
             raise TypeError("proposition must be a Proposition")
         if type(evidence_set) is not EvidenceSet:
             raise TypeError("evidence_set must be an EvidenceSet")
+        if (
+            proposition.identity_algorithm_version
+            != CURRENT_PROPOSITION_IDENTITY_ALGORITHM
+        ):
+            raise ValueError(
+                "criterion evaluation requires the current fingerprint-bound proposition identity"
+            )
 
         # Authenticate the direct evaluator boundary independently of the
         # higher-level hypothesis orchestration checks.

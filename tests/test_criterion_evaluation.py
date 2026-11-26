@@ -153,7 +153,7 @@ def make_evaluation_context(tmp_path):
     proposition = constructor.construct(evidence_set, "test-construction", 1)
     return repository, proposition, evidence_set, event, semantics_registry
 
-def test_registered_event_attribute_evaluator_returns_stance_neutral_finding(tmp_path):
+def test_registered_event_attribute_evaluator_returns_stance_neutral_finding(tmp_path, monkeypatch):
     repository, proposition, evidence_set, event, semantics_registry = make_evaluation_context(tmp_path)
     parameters = (
         CriterionParameterDefinition("event_role", "string", required=True),
@@ -197,6 +197,30 @@ def test_registered_event_attribute_evaluator_returns_stance_neutral_finding(tmp
     )
     finding = engine.evaluate(criterion, proposition, evidence_set)
     repeated = engine.evaluate(criterion, proposition, evidence_set)
+
+    legacy_proposition = replace(
+        proposition,
+        identity_algorithm_version=LEGACY_PROPOSITION_IDENTITY_ALGORITHM,
+        proposition_id=deterministic_proposition_id(
+            proposition.proposition_type,
+            proposition.semantics_version,
+            proposition.roles,
+            proposition.temporal_scope,
+            proposition.parameters_json,
+            identity_algorithm_version=LEGACY_PROPOSITION_IDENTITY_ALGORITHM,
+        ),
+    )
+
+    def evidence_resolution_must_not_run(_evidence):
+        raise AssertionError("legacy proposition reached evidence resolution")
+
+    monkeypatch.setattr(engine, "_resolve_evidence", evidence_resolution_must_not_run)
+    with pytest.raises(
+        ValueError,
+        match="current fingerprint-bound proposition identity",
+    ):
+        engine.evaluate(criterion, legacy_proposition, evidence_set)
+
     assert finding.finding_id == repeated.finding_id
     assert finding.created_at == repeated.created_at == fixed_time
     assert finding.status == "matched"
@@ -545,7 +569,7 @@ def test_hypothesis_evaluation_engine_runs_findings_and_synthesis_end_to_end(tmp
     monkeypatch.setattr(repository, "get_evidence_set", lambda _evidence_set_id: None)
     with pytest.raises(
         ValueError,
-        match="persisted historical selection",
+        match="evidence manifest references an EvidenceSet that is not persisted",
     ):
         engine.evaluate(specification, evidence_set)
 
