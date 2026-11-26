@@ -707,6 +707,7 @@ def test_temporal_gap_reports_ordering_violation_separately(tmp_path):
         evidence=evidence,
         created_at=now + timedelta(minutes=1),
     )
+    repository.persist_evidence_set(selected)
     parameters = (
         CriterionParameterDefinition("earlier_event_role", "string", required=True),
         CriterionParameterDefinition("later_event_role", "string", required=True),
@@ -863,6 +864,7 @@ def test_event_type_count_is_scoped_to_entity_and_proposition_temporal_window(tm
         evidence=proposition.evidence_manifest.evidence,
         created_at=now + timedelta(minutes=1),
     )
+    repository.persist_evidence_set(evidence_set)
     parameters = (
         CriterionParameterDefinition("event_type", "string", required=True),
         CriterionParameterDefinition("minimum_count", "integer", required=True),
