@@ -499,9 +499,19 @@ class HypothesisEvaluationRule:
         )
         if len(independence_assertion_ids) != len(set(independence_assertion_ids)):
             raise ValueError("evaluation criteria must have distinct independence assertion identifiers")
+        criteria_by_id = {
+            item.criterion_id: item for item in self.criterion_definitions
+        }
         for bearing in self.bearing_definitions:
             if bearing.criterion_id not in known:
                 raise ValueError("bearing references an undeclared criterion")
+            if (
+                criteria_by_id[bearing.criterion_id].attacker_influenceable
+                and bearing.evaluability_role == "required"
+            ):
+                raise ValueError(
+                    "attacker-influenceable criteria cannot have required bearings"
+                )
             if self.review_status == "approved" and bearing.review_status != "approved":
                 raise ValueError("approved rules require approved bearing definitions")
         focal_judgments: dict[tuple[str, str], str] = {}
