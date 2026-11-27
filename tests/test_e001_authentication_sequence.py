@@ -287,6 +287,16 @@ def _all_event_ids(event_ids_by_type):
 
 
 def _evaluate_neutrally(repository, semantics, focal, focal_set, alternative, generated_hypothesis):
+    alternatives = (
+        alternative
+        if type(alternative) is tuple
+        else (alternative,)
+    )
+    if not alternatives or not all(
+        type(item) is HypothesisAlternative for item in alternatives
+    ):
+        raise TypeError("alternative must be a HypothesisAlternative or a non-empty tuple of them")
+
     params = (
         CriterionParameterDefinition("event_role", "string", required=True),
         CriterionParameterDefinition("attribute_name", "string", required=True),
@@ -334,7 +344,10 @@ def _evaluate_neutrally(repository, semantics, focal, focal_set, alternative, ge
             review_status="reviewed",
         )
         for outcome in ("equal", "not_equal")
-        for alternative_id in (alternative.alternative_id, RESIDUAL_ALTERNATIVE_ID)
+        for alternative_id in (
+            *(item.alternative_id for item in alternatives),
+            RESIDUAL_ALTERNATIVE_ID,
+        )
     )
     rule = HypothesisEvaluationRule(
         evaluation_rule_id="e001-neutral-authentication-rule",
@@ -355,7 +368,7 @@ def _evaluate_neutrally(repository, semantics, focal, focal_set, alternative, ge
             proposition=focal,
             created_at=generated_hypothesis.created_at,
         ),
-        alternatives=(alternative,),
+        alternatives=alternatives,
         evaluation_rule=rule,
     )
     engine = HypothesisEvaluationEngine(
