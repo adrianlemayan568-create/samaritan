@@ -5,6 +5,7 @@ import sqlite3
 
 import pytest
 
+from samaritan.analysis_contracts import EvidenceReference
 from samaritan.contracts import (
     Entity,
     Event,
@@ -17,6 +18,7 @@ from samaritan.contracts import (
     payload_checksum,
 )
 from samaritan.database import Database, DatabaseIntegrityError
+from samaritan.evaluation_contracts import EvidenceSet
 from samaritan.repository import Repository
 
 
@@ -832,3 +834,189 @@ def test_list_events_hydrates_participants_in_batch(tmp_path):
 
     for event in retrieved:
         assert event.participants == expected[event.event_id]
+
+
+def test_evidence_set_round_trip_preserves_order_and_reference_granularity(tmp_path):
+    repository, _, source = make_repository(tmp_path)
+    observation = make_observation(source)
+    entity = make_entity()
+    event = make_event(observation, (entity.entity_id,))
+    repository.persist_observation(
+        observation,
+        entities=(entity,),
+        events=(event,),
+    )
+    references = (
+        EvidenceReference(observation_id=observation.observation_id),
+        EvidenceReference(event_id=event.event_id),
+    )
+    evidence_set = EvidenceSet(
+        evidence_set_id=new_id(),
+        evidence=references,
+        created_at=NOW,
+    )
+
+    repository.persist_evidence_set(evidence_set)
+    retrieved = repository.get_evidence_set(evidence_set.evidence_set_id)
+
+    assert retrieved == evidence_set
+    assert retrieved.evidence == references
+    assert retrieved.evidence[0].observation_id == observation.observation_id
+    assert retrieved.evidence[1].event_id == event.event_id
+
+
+def test_evidence_set_allows_overlapping_observation_and_event_references(tmp_path):
+    repository, _, source = make_repository(tmp_path)
+    observation = make_observation(source)
+    event = make_event(observation)
+    repository.persist_observation(observation, events=(event,))
+    evidence_set = EvidenceSet(
+        evidence_set_id=new_id(),
+        evidence=(
+            EvidenceReference(observation_id=observation.observation_id),
+            EvidenceReference(event_id=event.event_id),
+        ),
+        created_at=NOW,
+    )
+
+    repository.persist_evidence_set(evidence_set)
+
+    assert repository.get_evidence_set(evidence_set.evidence_set_id) == evidence_set
+
+
+def test_empty_evidence_set_can_be_persisted_and_retrieved(tmp_path):
+    repository, _, _ = make_repository(tmp_path)
+    evidence_set = EvidenceSet(
+        evidence_set_id=new_id(),
+        evidence=(),
+        created_at=NOW,
+    )
+
+    repository.persist_evidence_set(evidence_set)
+
+    assert repository.get_evidence_set(evidence_set.evidence_set_id) == evidence_set
+
+
+def test_persisting_identical_evidence_set_again_is_idempotent(tmp_path):
+    repository, _, source = make_repository(tmp_path)
+    observation = make_observation(source)
+    repository.persist_observation(observation)
+    evidence_set = EvidenceSet(
+        evidence_set_id=new_id(),
+        evidence=(EvidenceReference(observation_id=observation.observation_id),),
+        created_at=NOW,
+    )
+
+    repository.persist_evidence_set(evidence_set)
+    repository.persist_evidence_set(evidence_set)
+
+    assert repository.get_evidence_set(evidence_set.evidence_set_id) == evidence_set
+
+
+def test_evidence_set_id_cannot_be_reused_for_a_different_selection(tmp_path):
+    repository, _, source = make_repository(tmp_path)
+    first = make_observation(source, '{"selection":1}')
+    second = make_observation(source, '{"selection":2}')
+    repository.persist_observation(first)
+    repository.persist_observation(second)
+    evidence_set_id = new_id()
+    original = EvidenceSet(
+        evidence_set_id=evidence_set_id,
+        evidence=(EvidenceReference(observation_id=first.observation_id),),
+        created_at=NOW,
+    )
+    conflicting = EvidenceSet(
+        evidence_set_id=evidence_set_id,
+        evidence=(EvidenceReference(observation_id=second.observation_id),),
+        created_at=NOW,
+    )
+    repository.persist_evidence_set(original)
+
+    with pytest.raises(
+        DatabaseIntegrityError,
+        match="different immutable selection",
+    ):
+        repository.persist_evidence_set(conflicting)
+
+    assert repository.get_evidence_set(evidence_set_id) == original
+
+
+@pytest.mark.parametrize("reference_kind", ["observation", "event"])
+def test_evidence_set_rejects_missing_source_reference_without_partial_record(
+    tmp_path, reference_kind
+):
+    repository, _, _ = make_repository(tmp_path)
+    reference = (
+        EvidenceReference(observation_id=new_id())
+        if reference_kind == "observation"
+        else EvidenceReference(event_id=new_id())
+    )
+    evidence_set = EvidenceSet(
+        evidence_set_id=new_id(),
+        evidence=(reference,),
+        created_at=NOW,
+    )
+
+    with pytest.raises(sqlite3.IntegrityError):
+        repository.persist_evidence_set(evidence_set)
+
+    assert repository.get_evidence_set(evidence_set.evidence_set_id) is None
+
+
+def test_persisted_evidence_set_items_and_identity_are_database_immutable(tmp_path):
+    repository, database, source = make_repository(tmp_path)
+    observation = make_observation(source)
+    event = make_event(observation)
+    repository.persist_observation(observation, events=(event,))
+    evidence_set = EvidenceSet(
+        evidence_set_id=new_id(),
+        evidence=(EvidenceReference(event_id=event.event_id),),
+        created_at=NOW,
+    )
+    repository.persist_evidence_set(evidence_set)
+
+    with pytest.raises(sqlite3.IntegrityError, match="immutable"):
+        with database.connection() as connection:
+            connection.execute(
+                "UPDATE evidence_sets SET created_at = ? WHERE evidence_set_id = ?",
+                ("2026-11-17T10:00:00+00:00", evidence_set.evidence_set_id),
+            )
+
+    with pytest.raises(sqlite3.IntegrityError, match="immutable"):
+        with database.connection() as connection:
+            connection.execute(
+                "DELETE FROM evidence_sets WHERE evidence_set_id = ?",
+                (evidence_set.evidence_set_id,),
+            )
+
+    with pytest.raises(sqlite3.IntegrityError, match="immutable"):
+        with database.connection() as connection:
+            connection.execute(
+                """
+                UPDATE evidence_set_items
+                SET item_index = 2
+                WHERE evidence_set_id = ?
+                """,
+                (evidence_set.evidence_set_id,),
+            )
+
+    with pytest.raises(sqlite3.IntegrityError, match="immutable"):
+        with database.connection() as connection:
+            connection.execute(
+                "DELETE FROM evidence_set_items WHERE evidence_set_id = ?",
+                (evidence_set.evidence_set_id,),
+            )
+
+    with pytest.raises(sqlite3.IntegrityError, match="sealed"):
+        with database.connection() as connection:
+            connection.execute(
+                """
+                INSERT INTO evidence_set_items (
+                    evidence_set_id, item_index, observation_id, event_id
+                )
+                VALUES (?, ?, NULL, ?)
+                """,
+                (evidence_set.evidence_set_id, 1, event.event_id),
+            )
+
+    assert repository.get_evidence_set(evidence_set.evidence_set_id) == evidence_set

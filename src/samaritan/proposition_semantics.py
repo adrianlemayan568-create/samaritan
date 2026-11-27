@@ -4,14 +4,25 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from types import MappingProxyType
+from typing import Mapping
+import unicodedata
 
-from samaritan.contracts import SCHEMA_VERSION, validate_text
+from samaritan.contracts import SCHEMA_VERSION, validate_identifier, validate_text
 
 
 ROLE_KINDS = frozenset({"entity", "event"})
 ROLE_CARDINALITIES = frozenset({"one"})
 TEMPORAL_RELATIONS = frozenset({"precedes"})
 PARAMETER_TYPES = frozenset({"string", "integer", "boolean"})
+
+
+def _validate_nfc_identifier(value: str, field_name: str) -> str:
+    """Require identifiers to use one canonical Unicode representation."""
+    normalized = unicodedata.normalize("NFC", value)
+    if value != normalized:
+        raise ValueError(f"{field_name} must be Unicode NFC normalized")
+    return validate_identifier(value, field_name)
 
 
 def _validate_schema_version(value: int, field_name: str) -> None:
@@ -37,7 +48,9 @@ class PropositionRoleDefinition:
 
     def __post_init__(self) -> None:
         object.__setattr__(
-            self, "role_name", validate_text(self.role_name, "role_name")
+            self, "role_name", _validate_nfc_identifier(
+                validate_text(self.role_name, "role_name"), "role_name"
+            )
         )
         object.__setattr__(
             self, "role_kind", validate_text(self.role_kind, "role_kind")
@@ -63,7 +76,9 @@ class PropositionRoleDefinition:
             object.__setattr__(
                 self,
                 "entity_type",
-                validate_text(self.entity_type, "entity_type"),
+                _validate_nfc_identifier(
+                    validate_text(self.entity_type, "entity_type"), "entity_type"
+                ),
             )
         else:
             if self.event_type is None or self.entity_type is not None:
@@ -73,7 +88,9 @@ class PropositionRoleDefinition:
             object.__setattr__(
                 self,
                 "event_type",
-                validate_text(self.event_type, "event_type"),
+                _validate_nfc_identifier(
+                    validate_text(self.event_type, "event_type"), "event_type"
+                ),
             )
 
         _validate_schema_version(
@@ -92,13 +109,18 @@ class TemporalConstraintDefinition:
     later_role: str
     relation: str = "precedes"
     schema_version: int = SCHEMA_VERSION
+    max_interval_seconds: int | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(
-            self, "earlier_role", validate_text(self.earlier_role, "earlier_role")
+            self, "earlier_role", _validate_nfc_identifier(
+                validate_text(self.earlier_role, "earlier_role"), "earlier_role"
+            )
         )
         object.__setattr__(
-            self, "later_role", validate_text(self.later_role, "later_role")
+            self, "later_role", _validate_nfc_identifier(
+                validate_text(self.later_role, "later_role"), "later_role"
+            )
         )
         object.__setattr__(
             self, "relation", validate_text(self.relation, "relation")
@@ -109,6 +131,11 @@ class TemporalConstraintDefinition:
 
         if self.relation not in TEMPORAL_RELATIONS:
             raise ValueError("unsupported temporal relation")
+        if self.max_interval_seconds is not None:
+            if type(self.max_interval_seconds) is not int:
+                raise TypeError("max_interval_seconds must be an integer or None")
+            if self.max_interval_seconds <= 0:
+                raise ValueError("max_interval_seconds must be positive")
 
         _validate_schema_version(
             self.schema_version, "temporal constraint schema version"
@@ -127,10 +154,14 @@ class TemporalScopeDefinition:
 
     def __post_init__(self) -> None:
         object.__setattr__(
-            self, "start_role", validate_text(self.start_role, "start_role")
+            self, "start_role", _validate_nfc_identifier(
+                validate_text(self.start_role, "start_role"), "start_role"
+            )
         )
         object.__setattr__(
-            self, "end_role", validate_text(self.end_role, "end_role")
+            self, "end_role", _validate_nfc_identifier(
+                validate_text(self.end_role, "end_role"), "end_role"
+            )
         )
 
         if self.start_role == self.end_role:
@@ -156,12 +187,15 @@ class SemanticParameterDefinition:
     required: bool = False
     default_value: str | int | bool | None = None
     schema_version: int = SCHEMA_VERSION
+    meaning: str = ""
 
     def __post_init__(self) -> None:
         object.__setattr__(
             self,
             "parameter_name",
-            validate_text(self.parameter_name, "parameter_name"),
+            _validate_nfc_identifier(
+                validate_text(self.parameter_name, "parameter_name"), "parameter_name"
+            ),
         )
         object.__setattr__(
             self, "value_type", validate_text(self.value_type, "value_type")
@@ -175,6 +209,15 @@ class SemanticParameterDefinition:
 
         if self.required and self.default_value is not None:
             raise ValueError("required parameters cannot have a default value")
+        if not self.required and self.default_value is None:
+            raise ValueError(
+                "optional semantic parameters must define a default value"
+            )
+
+        if not isinstance(self.meaning, str):
+            raise TypeError("meaning must be a string")
+        if self.meaning:
+            object.__setattr__(self, "meaning", validate_text(self.meaning, "meaning"))
 
         if self.default_value is not None:
             if self.value_type == "string":
@@ -214,7 +257,9 @@ class PropositionSemantics:
         object.__setattr__(
             self,
             "proposition_type",
-            validate_text(self.proposition_type, "proposition_type"),
+            _validate_nfc_identifier(
+                validate_text(self.proposition_type, "proposition_type"), "proposition_type"
+            ),
         )
         if not isinstance(self.description, str):
             raise TypeError("description must be a string")
@@ -233,7 +278,7 @@ class PropositionSemantics:
             raise TypeError("roles must be a non-empty tuple")
 
         if not all(
-            isinstance(item, PropositionRoleDefinition) for item in self.roles
+            type(item) is PropositionRoleDefinition for item in self.roles
         ):
             raise TypeError(
                 "roles must contain PropositionRoleDefinition objects"
@@ -243,7 +288,7 @@ class PropositionSemantics:
             raise TypeError("temporal_constraints must be a tuple")
 
         if not all(
-            isinstance(item, TemporalConstraintDefinition)
+            type(item) is TemporalConstraintDefinition
             for item in self.temporal_constraints
         ):
             raise TypeError(
@@ -253,7 +298,7 @@ class PropositionSemantics:
 
         if (
             self.temporal_scope is not None
-            and not isinstance(self.temporal_scope, TemporalScopeDefinition)
+            and not type(self.temporal_scope) is TemporalScopeDefinition
         ):
             raise TypeError(
                 "temporal_scope must be a TemporalScopeDefinition or None"
@@ -263,7 +308,7 @@ class PropositionSemantics:
             raise TypeError("parameters must be a tuple")
 
         if not all(
-            isinstance(item, SemanticParameterDefinition)
+            type(item) is SemanticParameterDefinition
             for item in self.parameters
         ):
             raise TypeError(
@@ -280,6 +325,13 @@ class PropositionSemantics:
             if item.role_kind == "event"
         }
         event_role_names = set(event_roles)
+        required_event_role_names = {
+            name for name, role in event_roles.items() if role.required
+        }
+        if self.temporal_scope is None and not required_event_role_names:
+            raise ValueError(
+                "semantics without an explicit temporal scope must declare at least one required event role"
+            )
 
         constraint_pairs = set()
         for constraint in self.temporal_constraints:
@@ -372,6 +424,8 @@ class PropositionSemantics:
         parameter_names = [item.parameter_name for item in self.parameters]
         if len(parameter_names) != len(set(parameter_names)):
             raise ValueError("semantic parameter names must be unique")
+        if set(role_names) & set(parameter_names):
+            raise ValueError("semantic role and parameter names must be distinct")
 
         _validate_schema_version(
             self.schema_version, "proposition semantics schema version"
@@ -382,11 +436,16 @@ class PropositionSemanticsRegistry:
     """Store immutable proposition semantics by exact type and version."""
 
     def __init__(self) -> None:
-        self._definitions: dict[tuple[str, int], PropositionSemantics] = {}
+        self._definitions: dict[tuple[str, int], PropositionSemantics] | Mapping[
+            tuple[str, int], PropositionSemantics
+        ] = {}
+        self._frozen = False
 
     def register(self, definition: PropositionSemantics) -> None:
-        if not isinstance(definition, PropositionSemantics):
-            raise TypeError("definition must be PropositionSemantics")
+        if type(definition) is not PropositionSemantics:
+            raise TypeError("definition must be exactly PropositionSemantics")
+        if self._frozen:
+            raise RuntimeError("proposition semantics registry is frozen")
 
         key = (definition.proposition_type, definition.semantics_version)
 
@@ -395,12 +454,23 @@ class PropositionSemanticsRegistry:
 
         self._definitions[key] = definition
 
+    def freeze(self) -> None:
+        """Prevent further registration and expose an immutable definition map."""
+        if not self._frozen:
+            self._definitions = MappingProxyType(dict(self._definitions))
+            self._frozen = True
+
+    @property
+    def definitions(self) -> Mapping[tuple[str, int], PropositionSemantics]:
+        """Return a read-only view of registered semantics definitions."""
+        return MappingProxyType(dict(self._definitions))
+
     def get(
         self,
         proposition_type: str,
         semantics_version: int,
     ) -> PropositionSemantics:
-        proposition_type = validate_text(proposition_type, "proposition_type")
+        proposition_type = validate_identifier(proposition_type, "proposition_type")
 
         if type(semantics_version) is not int:
             raise TypeError("semantics_version must be an integer")
@@ -482,10 +552,12 @@ def build_default_proposition_semantics_registry() -> PropositionSemanticsRegist
                 TemporalConstraintDefinition(
                     earlier_role="failure_event",
                     later_role="success_event",
+                    max_interval_seconds=300,
                 ),
                 TemporalConstraintDefinition(
                     earlier_role="success_event",
                     later_role="host_activity_event",
+                    max_interval_seconds=300,
                 ),
             ),
             temporal_scope=TemporalScopeDefinition(

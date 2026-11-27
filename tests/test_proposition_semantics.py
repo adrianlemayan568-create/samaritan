@@ -619,6 +619,7 @@ def test_duplicate_parameter_names_are_rejected():
     parameter = SemanticParameterDefinition(
         parameter_name="mode",
         value_type="string",
+        default_value="strict",
     )
 
     with pytest.raises(ValueError, match="unique"):
@@ -779,7 +780,7 @@ def test_acyclic_temporal_chain_is_accepted():
             "first", "second", schema_version=True,
         ),
         lambda: SemanticParameterDefinition(
-            "mode", "string", schema_version=True,
+            "mode", "string", default_value="strict", schema_version=True,
         ),
         lambda: PropositionSemantics(
             "test", 1, (make_role(),), schema_version=True,
@@ -810,3 +811,68 @@ def test_semantics_description_rejects_surrounding_whitespace():
             roles=(make_role(),),
             description=" invalid ",
         )
+
+
+def test_default_authentication_sequence_limits_each_temporal_gap_to_five_minutes():
+    semantics = build_default_proposition_semantics_registry().get(
+        "account_authentication_sequence", 1
+    )
+    assert [item.max_interval_seconds for item in semantics.temporal_constraints] == [
+        300,
+        300,
+    ]
+
+
+def test_temporal_constraint_rejects_non_positive_interval_limit():
+    with pytest.raises(ValueError, match="positive"):
+        TemporalConstraintDefinition(
+            "first",
+            "second",
+            max_interval_seconds=0,
+        )
+
+
+def test_temporal_constraint_requires_integer_interval_limit():
+    with pytest.raises(TypeError, match="integer"):
+        TemporalConstraintDefinition(
+            "first",
+            "second",
+            max_interval_seconds=1.5,
+        )
+
+
+@pytest.mark.parametrize(
+    "identifier",
+    ["bad\\nname", "bad\\x00name", "name@version", "a" * 129, "аccount"],
+)
+def test_semantics_rejects_hostile_or_ambiguous_identifiers(identifier):
+    with pytest.raises(ValueError):
+        make_semantics(proposition_type=identifier)
+
+
+def test_semantics_registry_can_be_frozen_and_exposes_read_only_definitions():
+    registry = PropositionSemanticsRegistry()
+    definition = make_semantics()
+    registry.register(definition)
+    registry.freeze()
+
+    assert registry.get(definition.proposition_type, definition.semantics_version) is definition
+    with pytest.raises(RuntimeError, match="frozen"):
+        registry.register(make_semantics(semantics_version=2))
+    with pytest.raises(TypeError):
+        registry.definitions[(definition.proposition_type, 2)] = make_semantics(semantics_version=2)
+
+
+def test_semantics_rejects_unvalidated_role_definition_subclasses():
+    class ExtendedRoleDefinition(PropositionRoleDefinition):
+        pass
+
+    role = ExtendedRoleDefinition(
+        role_name="event",
+        role_kind="event",
+        cardinality="one",
+        event_type="authentication_failure",
+        meaning="A test role.",
+    )
+    with pytest.raises(TypeError, match="PropositionRoleDefinition"):
+        make_semantics(roles=(role,))

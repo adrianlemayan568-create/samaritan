@@ -15,6 +15,120 @@ from samaritan.repository import Repository
 MAX_EVENTS_PER_BATCH = 100
 
 
+def resolve_participant_entities(
+    repository: Repository,
+    events: tuple[Event, ...],
+) -> dict[str, Entity]:
+    """Resolve every participant entity for the supplied persisted events."""
+    requested_ids = tuple(
+        dict.fromkeys(
+            participant.entity_id
+            for event in events
+            for participant in event.participants
+        )
+    )
+
+    if not requested_ids:
+        return {}
+
+    retrieved_entities = repository.get_entities_by_ids(requested_ids)
+
+    if not isinstance(retrieved_entities, tuple) or not all(
+        isinstance(entity, Entity)
+        for entity in retrieved_entities
+    ):
+        raise DatabaseIntegrityError(
+            "repository returned invalid participant entity records"
+        )
+
+    entities = {
+        entity.entity_id: entity
+        for entity in retrieved_entities
+    }
+
+    missing_ids = tuple(
+        entity_id
+        for entity_id in requested_ids
+        if entity_id not in entities
+    )
+
+    if missing_ids:
+        raise DatabaseIntegrityError(
+            "referenced participant entities do not exist: "
+            + ", ".join(missing_ids)
+        )
+
+    return entities
+
+
+def derive_correlation_facts(
+    first_event: Event,
+    second_event: Event,
+    entities: dict[str, Entity],
+    rules: tuple[CorrelationRule, ...],
+) -> tuple[tuple[str, ...], tuple[CorrelationRule, ...], float] | None:
+    """Derive shared entities, matching rules, and time delta from source records."""
+    first_entity_ids = {
+        participant.entity_id
+        for participant in first_event.participants
+    }
+    second_entity_ids = {
+        participant.entity_id
+        for participant in second_event.participants
+    }
+    shared_entity_ids = first_entity_ids & second_entity_ids
+
+    if not shared_entity_ids:
+        return None
+
+    time_delta = abs(
+        (first_event.occurred_at - second_event.occurred_at).total_seconds()
+    )
+    event_type_pair = frozenset(
+        (first_event.event_type, second_event.event_type)
+    )
+
+    matched_rules = []
+    qualifying_entity_ids = set()
+
+    for rule in rules:
+        allowed_pairs = {
+            frozenset(pair)
+            for pair in rule.event_type_pairs
+        }
+
+        if event_type_pair not in allowed_pairs:
+            continue
+
+        if time_delta > rule.max_time_delta_seconds:
+            continue
+
+        allowed_entity_types = set(rule.shared_entity_types)
+        rule_shared_ids = {
+            entity_id
+            for entity_id in shared_entity_ids
+            if entities[entity_id].entity_type in allowed_entity_types
+        }
+
+        if not rule_shared_ids:
+            continue
+
+        matched_rules.append(rule)
+        qualifying_entity_ids.update(rule_shared_ids)
+
+    if not matched_rules:
+        return None
+
+    ordered_shared_ids = tuple(
+        participant.entity_id
+        for participant in first_event.participants
+        if participant.entity_id in qualifying_entity_ids
+    )
+    ordered_shared_ids = tuple(dict.fromkeys(ordered_shared_ids))
+
+    return ordered_shared_ids, tuple(matched_rules), time_delta
+
+
 class CorrelationEngine:
     """Correlate events using explicit, configurable evidence rules."""
 
@@ -154,47 +268,7 @@ class CorrelationEngine:
         events: tuple[Event, ...],
     ) -> dict[str, Entity]:
         """Resolve all participant entities in one batch retrieval."""
-        requested_ids = tuple(
-            dict.fromkeys(
-                participant.entity_id
-                for event in events
-                for participant in event.participants
-            )
-        )
-
-        if not requested_ids:
-            return {}
-
-        retrieved_entities = self.repository.get_entities_by_ids(
-            requested_ids
-        )
-
-        if not isinstance(retrieved_entities, tuple) or not all(
-            isinstance(entity, Entity)
-            for entity in retrieved_entities
-        ):
-            raise DatabaseIntegrityError(
-                "repository returned invalid participant entity records"
-            )
-
-        entities = {
-            entity.entity_id: entity
-            for entity in retrieved_entities
-        }
-
-        missing_ids = tuple(
-            entity_id
-            for entity_id in requested_ids
-            if entity_id not in entities
-        )
-
-        if missing_ids:
-            raise DatabaseIntegrityError(
-                "referenced participant entities do not exist: "
-                + ", ".join(missing_ids)
-            )
-
-        return entities
+        return resolve_participant_entities(self.repository, events)
 
     def _correlate_loaded_pair(
         self,
@@ -203,71 +277,17 @@ class CorrelationEngine:
         entities: dict[str, Entity],
     ) -> Correlation | None:
         """Evaluate configured rules against an already loaded event pair."""
-        first_entity_ids = {
-            participant.entity_id
-            for participant in first_event.participants
-        }
-        second_entity_ids = {
-            participant.entity_id
-            for participant in second_event.participants
-        }
+        facts = derive_correlation_facts(
+            first_event,
+            second_event,
+            entities,
+            self.rules,
+        )
 
-        shared_entity_ids = first_entity_ids & second_entity_ids
-
-        if not shared_entity_ids:
+        if facts is None:
             return None
 
-        time_delta = abs(
-            (
-                first_event.occurred_at
-                - second_event.occurred_at
-            ).total_seconds()
-        )
-
-        event_type_pair = frozenset(
-            (first_event.event_type, second_event.event_type)
-        )
-
-        matched_rules = []
-        qualifying_entity_ids = set()
-
-        for rule in self.rules:
-            allowed_pairs = {
-                frozenset(pair)
-                for pair in rule.event_type_pairs
-            }
-
-            if event_type_pair not in allowed_pairs:
-                continue
-
-            if time_delta > rule.max_time_delta_seconds:
-                continue
-
-            allowed_entity_types = set(rule.shared_entity_types)
-
-            rule_shared_ids = {
-                entity_id
-                for entity_id in shared_entity_ids
-                if entities[entity_id].entity_type in allowed_entity_types
-            }
-
-            if not rule_shared_ids:
-                continue
-
-            matched_rules.append(rule)
-            qualifying_entity_ids.update(rule_shared_ids)
-
-        if not matched_rules:
-            return None
-
-        ordered_shared_ids = tuple(
-            participant.entity_id
-            for participant in first_event.participants
-            if participant.entity_id in qualifying_entity_ids
-        )
-
-        # EventParticipant collections may contain repeated references.
-        ordered_shared_ids = tuple(dict.fromkeys(ordered_shared_ids))
+        ordered_shared_ids, matched_rules, time_delta = facts
 
         shared_entity_types = tuple(
             sorted(

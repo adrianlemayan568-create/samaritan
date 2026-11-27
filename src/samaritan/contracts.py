@@ -12,6 +12,7 @@ import uuid
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import unicodedata
 from typing import Any
 
 
@@ -44,6 +45,24 @@ def validate_text(value: str, field_name: str) -> str:
             f"{field_name} must be non-empty and have no surrounding whitespace"
         )
 
+    return value
+
+
+def validate_identifier(value: str, field_name: str) -> str:
+    """Validate a bounded registry identifier without control or spoofing characters."""
+    value = validate_text(value, field_name)
+    if len(value) > 128 or not value[0].isalpha():
+        raise ValueError(f"{field_name} must be a 1-128 character identifier")
+    for char in value:
+        if char.isascii() and (char.isalnum() or char in "_.-"):
+            continue
+        # Permit precomposed Latin letters (e.g. Café), but reject other
+        # scripts that create visually confusable registry keys.
+        if char.isalpha() and "LATIN" in unicodedata.name(char, ""):
+            continue
+        raise ValueError(
+            f"{field_name} contains a disallowed or visually ambiguous character"
+        )
     return value
 
 

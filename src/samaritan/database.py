@@ -6,7 +6,7 @@ import sqlite3
 from typing import Iterator
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 REQUIRED_TABLES = frozenset(
     {
@@ -17,6 +17,8 @@ REQUIRED_TABLES = frozenset(
         "events",
         "event_participants",
         "relationships",
+        "evidence_sets",
+        "evidence_set_items",
     }
 )
 
@@ -213,6 +215,113 @@ _SCHEMA_STATEMENTS = (
     """,
 )
 
+_EVIDENCE_SET_SCHEMA_STATEMENTS = (
+    """
+    CREATE TABLE evidence_sets (
+        evidence_set_id TEXT PRIMARY KEY NOT NULL,
+        created_at TEXT NOT NULL,
+        schema_version INTEGER NOT NULL
+            CHECK (schema_version = 1),
+        is_sealed INTEGER NOT NULL
+            CHECK (is_sealed IN (0, 1))
+    )
+    """,
+    """
+    CREATE TABLE evidence_set_items (
+        evidence_set_id TEXT NOT NULL,
+        item_index INTEGER NOT NULL
+            CHECK (item_index >= 0),
+        observation_id TEXT,
+        event_id TEXT,
+
+        PRIMARY KEY (evidence_set_id, item_index),
+
+        CHECK (
+            (observation_id IS NOT NULL AND event_id IS NULL)
+            OR (observation_id IS NULL AND event_id IS NOT NULL)
+        ),
+
+        FOREIGN KEY (evidence_set_id)
+            REFERENCES evidence_sets(evidence_set_id)
+            ON UPDATE RESTRICT
+            ON DELETE RESTRICT,
+
+        FOREIGN KEY (observation_id)
+            REFERENCES observations(observation_id)
+            ON UPDATE RESTRICT
+            ON DELETE RESTRICT,
+
+        FOREIGN KEY (event_id)
+            REFERENCES events(event_id)
+            ON UPDATE RESTRICT
+            ON DELETE RESTRICT
+    )
+    """,
+    """
+    CREATE UNIQUE INDEX idx_evidence_set_items_observation
+    ON evidence_set_items(evidence_set_id, observation_id)
+    WHERE observation_id IS NOT NULL
+    """,
+    """
+    CREATE UNIQUE INDEX idx_evidence_set_items_event
+    ON evidence_set_items(evidence_set_id, event_id)
+    WHERE event_id IS NOT NULL
+    """,
+    """
+    CREATE TRIGGER trg_evidence_set_items_insert_unsealed_only
+    BEFORE INSERT ON evidence_set_items
+    WHEN COALESCE(
+        (SELECT is_sealed FROM evidence_sets
+         WHERE evidence_set_id = NEW.evidence_set_id),
+        1
+    ) != 0
+    BEGIN
+        SELECT RAISE(ABORT, 'evidence set is already sealed');
+    END
+    """,
+    """
+    CREATE TRIGGER trg_evidence_set_items_no_update
+    BEFORE UPDATE ON evidence_set_items
+    BEGIN
+        SELECT RAISE(ABORT, 'evidence set items are immutable');
+    END
+    """,
+    """
+    CREATE TRIGGER trg_evidence_set_items_no_delete
+    BEFORE DELETE ON evidence_set_items
+    BEGIN
+        SELECT RAISE(ABORT, 'evidence set items are immutable');
+    END
+    """,
+    """
+    CREATE TRIGGER trg_evidence_sets_seal_once
+    BEFORE UPDATE ON evidence_sets
+    WHEN OLD.is_sealed != 0
+      OR NEW.is_sealed != 1
+      OR NEW.evidence_set_id != OLD.evidence_set_id
+      OR NEW.created_at != OLD.created_at
+      OR NEW.schema_version != OLD.schema_version
+      OR EXISTS (
+          SELECT 1
+          FROM evidence_set_items
+          WHERE evidence_set_id = OLD.evidence_set_id
+          GROUP BY evidence_set_id
+          HAVING MIN(item_index) != 0
+             OR MAX(item_index) != COUNT(*) - 1
+      )
+    BEGIN
+        SELECT RAISE(ABORT, 'evidence sets are immutable');
+    END
+    """,
+    """
+    CREATE TRIGGER trg_evidence_sets_no_delete
+    BEFORE DELETE ON evidence_sets
+    BEGIN
+        SELECT RAISE(ABORT, 'evidence sets are immutable');
+    END
+    """,
+)
+
 
 _EXPECTED_COLUMNS = {
     "sources": (
@@ -272,6 +381,18 @@ _EXPECTED_COLUMNS = {
         ("attributes_json", "TEXT", 1, 0),
         ("schema_version", "INTEGER", 1, 0),
     ),
+    "evidence_sets": (
+        ("evidence_set_id", "TEXT", 1, 1),
+        ("created_at", "TEXT", 1, 0),
+        ("schema_version", "INTEGER", 1, 0),
+        ("is_sealed", "INTEGER", 1, 0),
+    ),
+    "evidence_set_items": (
+        ("evidence_set_id", "TEXT", 1, 1),
+        ("item_index", "INTEGER", 1, 2),
+        ("observation_id", "TEXT", 0, 0),
+        ("event_id", "TEXT", 0, 0),
+    ),
 }
 
 
@@ -308,6 +429,14 @@ _EXPECTED_INDEXES = {
         "relationships",
         ("observation_id",),
     ),
+    "idx_evidence_set_items_observation": (
+        "evidence_set_items",
+        ("evidence_set_id", "observation_id"),
+    ),
+    "idx_evidence_set_items_event": (
+        "evidence_set_items",
+        ("evidence_set_id", "event_id"),
+    ),
 }
 
 
@@ -329,6 +458,11 @@ _EXPECTED_FOREIGN_KEYS = {
         ("entities", "source_entity_id", "entity_id", "RESTRICT", "RESTRICT"),
         ("entities", "target_entity_id", "entity_id", "RESTRICT", "RESTRICT"),
         ("observations", "observation_id", "observation_id", "RESTRICT", "RESTRICT"),
+    },
+    "evidence_set_items": {
+        ("evidence_sets", "evidence_set_id", "evidence_set_id", "RESTRICT", "RESTRICT"),
+        ("observations", "observation_id", "observation_id", "RESTRICT", "RESTRICT"),
+        ("events", "event_id", "event_id", "RESTRICT", "RESTRICT"),
     },
 }
 
@@ -430,7 +564,17 @@ class Database:
                         "recognized schema version; refusing initialization"
                     )
 
-                for statement in _SCHEMA_STATEMENTS:
+                for statement in _SCHEMA_STATEMENTS + _EVIDENCE_SET_SCHEMA_STATEMENTS:
+                    connection.execute(statement)
+
+                connection.execute(
+                    f"PRAGMA user_version = {SCHEMA_VERSION}"
+                )
+
+            elif version == 1:
+                # M7 adds immutable, ordered EvidenceSet persistence without
+                # rewriting any existing source records.
+                for statement in _EVIDENCE_SET_SCHEMA_STATEMENTS:
                     connection.execute(statement)
 
                 connection.execute(
@@ -576,6 +720,14 @@ class Database:
                 "entity identity uniqueness constraint is missing"
             )
 
+        unsealed_evidence_sets = connection.execute(
+            "SELECT COUNT(*) FROM evidence_sets WHERE is_sealed != 1"
+        ).fetchone()[0]
+        if unsealed_evidence_sets:
+            raise DatabaseIntegrityError(
+                "database contains unsealed evidence set records"
+            )
+
         integrity_results = connection.execute(
             "PRAGMA integrity_check"
         ).fetchall()
@@ -603,7 +755,7 @@ class Database:
         with sqlite3.connect(":memory:") as reference:
             reference.row_factory = sqlite3.Row
 
-            for statement in _SCHEMA_STATEMENTS:
+            for statement in _SCHEMA_STATEMENTS + _EVIDENCE_SET_SCHEMA_STATEMENTS:
                 reference.execute(statement)
 
             expected_definitions = _schema_definitions(reference)

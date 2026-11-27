@@ -59,7 +59,7 @@ def test_database_requires_positive_timeout(tmp_path):
         Database(tmp_path / "test.db", timeout=0)
 
 
-def test_initialization_creates_seven_tables(tmp_path):
+def test_initialization_creates_nine_tables(tmp_path):
     database = make_database(tmp_path)
 
     with database.connection() as connection:
@@ -72,10 +72,10 @@ def test_initialization_creates_seven_tables(tmp_path):
             """
         ).fetchall()
 
-    assert len(rows) == 7
+    assert len(rows) == 9
 
 
-def test_schema_version_is_one(tmp_path):
+def test_database_schema_version_is_two(tmp_path):
     database = make_database(tmp_path)
 
     with database.connection() as connection:
@@ -83,8 +83,44 @@ def test_schema_version_is_one(tmp_path):
             "PRAGMA user_version"
         ).fetchone()[0]
 
-    assert version == 1
+    assert version == 2
 
+
+
+def test_schema_version_one_migrates_to_two_without_losing_records(tmp_path):
+    from samaritan.database import _SCHEMA_STATEMENTS
+
+    path = tmp_path / "legacy-v1.db"
+    with sqlite3.connect(path) as connection:
+        for statement in _SCHEMA_STATEMENTS:
+            connection.execute(statement)
+        connection.execute("PRAGMA user_version = 1")
+        insert_observation(connection)
+
+    database = Database(path)
+    database.initialize()
+
+    with database.connection() as connection:
+        version = connection.execute("PRAGMA user_version").fetchone()[0]
+        source_count = connection.execute(
+            "SELECT COUNT(*) FROM sources"
+        ).fetchone()[0]
+        observation_count = connection.execute(
+            "SELECT COUNT(*) FROM observations"
+        ).fetchone()[0]
+        evidence_set_tables = connection.execute(
+            """
+            SELECT COUNT(*) FROM sqlite_master
+            WHERE type = 'table'
+              AND name IN ('evidence_sets', 'evidence_set_items')
+            """
+        ).fetchone()[0]
+
+    assert version == 2
+    assert source_count == 1
+    assert observation_count == 1
+    assert evidence_set_tables == 2
+    database.verify_schema()
 
 def test_foreign_keys_are_enabled_on_every_connection(tmp_path):
     database = make_database(tmp_path)
@@ -577,17 +613,20 @@ def test_event_participant_index_constraint_is_enforced(tmp_path):
 
 
 def create_modified_schema_database(tmp_path, modification):
-    """Create a version-one database with a deliberately modified schema."""
+    """Create a version-two database with a deliberately modified schema."""
 
-    from samaritan.database import _SCHEMA_STATEMENTS
+    from samaritan.database import (
+        _EVIDENCE_SET_SCHEMA_STATEMENTS,
+        _SCHEMA_STATEMENTS,
+    )
 
     path = tmp_path / "modified-schema.db"
 
     with sqlite3.connect(path) as connection:
-        for statement in _SCHEMA_STATEMENTS:
+        for statement in _SCHEMA_STATEMENTS + _EVIDENCE_SET_SCHEMA_STATEMENTS:
             connection.execute(modification(statement))
 
-        connection.execute("PRAGMA user_version = 1")
+        connection.execute("PRAGMA user_version = 2")
 
     return Database(path)
 
@@ -676,4 +715,29 @@ def test_verify_schema_rejects_unexpected_trigger(tmp_path):
         )
 
     with pytest.raises(DatabaseIntegrityError, match="definitions"):
+        database.verify_schema()
+
+
+def test_verify_schema_rejects_unsealed_evidence_set_record(tmp_path):
+    database = make_database(tmp_path)
+
+    with database.connection() as connection:
+        connection.execute(
+            """
+            INSERT INTO evidence_sets (
+                evidence_set_id, created_at, schema_version, is_sealed
+            )
+            VALUES (?, ?, ?, 0)
+            """,
+            (
+                "unsealed-evidence-set",
+                "2026-11-13T10:00:00+00:00",
+                1,
+            ),
+        )
+
+    with pytest.raises(
+        DatabaseIntegrityError,
+        match="unsealed evidence set",
+    ):
         database.verify_schema()
