@@ -10,6 +10,7 @@ from samaritan.analysis_contracts import (
     Hypothesis,
 )
 from samaritan.contracts import (
+    Entity,
     Event,
     Observation,
     new_id,
@@ -25,7 +26,7 @@ from samaritan.hypothesis_generation_contracts import (
     HypothesisGenerationResult,
     HypothesisGenerationRule,
 )
-from samaritan.hypothesis_patterns import match_correlation_components
+from samaritan.hypothesis_patterns import match_hypothesis_pattern
 from samaritan.repository import Repository
 
 
@@ -98,8 +99,73 @@ class HypothesisGenerationEngine:
         if len(correlation_rule_ids) != len(set(correlation_rule_ids)):
             raise ValueError("duplicate correlation rule IDs")
 
+        correlation_rule_map = {
+            rule.rule_id: rule for rule in configured_correlation_rules
+        }
+        for generation_rule in configured_rules:
+            role_map = {
+                role.role_name: role
+                for role in generation_rule.pattern.event_roles
+            }
+            bindings_by_role = {
+                role.role_name: tuple(
+                    binding
+                    for binding in generation_rule.pattern.entity_bindings
+                    if binding.event_role == role.role_name
+                )
+                for role in generation_rule.pattern.event_roles
+            }
+            for constraint in generation_rule.pattern.correlation_constraints:
+                correlation_rule = correlation_rule_map.get(
+                    constraint.correlation_rule_id
+                )
+                if correlation_rule is None:
+                    raise ValueError(
+                        "pattern references an unconfigured correlation rule: "
+                        f"{constraint.correlation_rule_id}"
+                    )
+
+                first_role = role_map[constraint.first_event_role]
+                second_role = role_map[constraint.second_event_role]
+                expected_pair = frozenset(
+                    (first_role.event_type, second_role.event_type)
+                )
+                configured_pairs = {
+                    frozenset(pair)
+                    for pair in correlation_rule.event_type_pairs
+                }
+                if expected_pair not in configured_pairs:
+                    raise ValueError(
+                        "pattern event types do not match their configured "
+                        f"correlation rule: {correlation_rule.rule_id}"
+                    )
+
+                common_binding_names = (
+                    {
+                        binding.binding_name
+                        for binding in bindings_by_role[first_role.role_name]
+                    }
+                    & {
+                        binding.binding_name
+                        for binding in bindings_by_role[second_role.role_name]
+                    }
+                )
+                common_entity_types = {
+                    binding.entity_type
+                    for binding in generation_rule.pattern.entity_bindings
+                    if binding.binding_name in common_binding_names
+                }
+                if not common_entity_types.intersection(
+                    correlation_rule.shared_entity_types
+                ):
+                    raise ValueError(
+                        "pattern identity bindings do not match the shared "
+                        "entity types of correlation rule: "
+                        f"{correlation_rule.rule_id}"
+                    )
+
         self.repository = repository
-        self.rules = configured_rules
+        self.rules = tuple(sorted(configured_rules, key=lambda item: item.rule_id))
         self.correlation_rules = configured_correlation_rules
 
     def generate(
@@ -152,33 +218,38 @@ class HypothesisGenerationEngine:
         event_cache: dict[str, Event] = {}
         observation_cache: dict[str, Observation] = {}
 
-        self._validate_correlation_evidence(
+        entities = self._validate_correlation_evidence(
             supplied,
             event_cache,
             observation_cache,
+        )
+        persisted_events = tuple(
+            event_cache[event_id] for event_id in sorted(event_cache)
         )
 
         hypotheses = []
         generations = []
 
         for rule in self.rules:
-            components = match_correlation_components(
+            matches = match_hypothesis_pattern(
+                rule.pattern,
                 supplied,
-                rule,
+                persisted_events,
+                entities,
             )
 
-            for component in components:
-                event_ids = sorted({
-                    event_id
-                    for correlation in component
-                    for event_id in correlation.event_ids
-                })
-
-                observation_ids = sorted({
-                    observation_id
-                    for correlation in component
-                    for observation_id in correlation.observation_ids
-                })
+            for match in matches:
+                matched_events = tuple(
+                    event for _, event in match.events
+                )
+                event_ids = tuple(
+                    sorted(event.event_id for event in matched_events)
+                )
+                observation_ids = tuple(
+                    sorted({
+                        event.observation_id for event in matched_events
+                    })
+                )
 
                 evidence = tuple(
                     [
@@ -206,8 +277,10 @@ class HypothesisGenerationEngine:
                     hypothesis_id=hypothesis_id,
                     rule_id=rule.rule_id,
                     correlation_ids=tuple(
-                        correlation.correlation_id
-                        for correlation in component
+                        sorted(
+                            correlation.correlation_id
+                            for correlation in match.correlations
+                        )
                     ),
                     evidence=evidence,
                     created_at=created_at,
@@ -226,7 +299,7 @@ class HypothesisGenerationEngine:
         correlations: tuple[Correlation, ...],
         event_cache: dict[str, Event],
         observation_cache: dict[str, Observation],
-    ) -> None:
+    ) -> dict[str, Entity]:
         """Verify every correlation's event and observation provenance."""
         for correlation in correlations:
             for event_id, observation_id in zip(
@@ -304,6 +377,8 @@ class HypothesisGenerationEngine:
                     "correlation matched rules do not match configured "
                     "correlation rules and persisted events"
                 )
+
+        return entities
 
     def _get_required_event(self, event_id: str) -> Event:
         """Retrieve an event or raise an integrity error if missing."""

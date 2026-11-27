@@ -20,7 +20,14 @@ from samaritan.database import Database
 from samaritan.evaluation_contracts import EvidenceSet
 from samaritan.hypothesis_evaluation import HypothesisEvaluationEngine
 from samaritan.hypothesis_generation import HypothesisGenerationEngine
-from samaritan.hypothesis_generation_contracts import HypothesisGenerationRule
+from samaritan.hypothesis_generation_contracts import (
+    HypothesisGenerationRule,
+    HypothesisPattern,
+    PatternCorrelationConstraint,
+    PatternEntityBinding,
+    PatternEventRole,
+    PatternTemporalConstraint,
+)
 from samaritan.ingestion import IngestionService
 from samaritan.proposition_construction import (
     PropositionConstructionError,
@@ -165,17 +172,65 @@ def _correlation_rules():
         CorrelationRule(
             rule_id="e001-failure-success",
             event_type_pairs=(("authentication_failure", "authentication_success"),),
-            shared_entity_types=("user_account",),
+            shared_entity_types=("user_account", "ip_address"),
             max_time_delta_seconds=300,
-            description="Failure and success share a user account within five minutes.",
+            description="Failure and success share an account or network identity within five minutes.",
         ),
         CorrelationRule(
             rule_id="e001-success-host",
             event_type_pairs=(("authentication_success", "host_activity"),),
-            shared_entity_types=("user_account",),
+            shared_entity_types=("user_account", "ip_address"),
             max_time_delta_seconds=300,
-            description="Success and host activity share a user account within five minutes.",
+            description="Success and host activity share an account or network identity within five minutes.",
         ),
+    )
+
+
+def _authentication_pattern():
+    return HypothesisPattern(
+        pattern_id="account_authentication_sequence",
+        version=1,
+        event_roles=(
+            PatternEventRole("failure_event", "authentication_failure"),
+            PatternEventRole("success_event", "authentication_success"),
+            PatternEventRole("host_activity_event", "host_activity"),
+        ),
+        correlation_constraints=(
+            PatternCorrelationConstraint(
+                "failure_event", "success_event", "e001-failure-success"
+            ),
+            PatternCorrelationConstraint(
+                "success_event", "host_activity_event", "e001-success-host"
+            ),
+        ),
+        entity_bindings=(
+            PatternEntityBinding(
+                "account", "failure_event", "user_account", "target"
+            ),
+            PatternEntityBinding(
+                "account", "success_event", "user_account", "target"
+            ),
+            PatternEntityBinding(
+                "account", "host_activity_event", "user_account", "subject"
+            ),
+        ),
+        temporal_constraints=(
+            PatternTemporalConstraint(
+                "failure_event", "success_event", True, 300
+            ),
+            PatternTemporalConstraint(
+                "success_event", "host_activity_event", True, 300
+            ),
+        ),
+    )
+
+
+def _generation_rule():
+    return HypothesisGenerationRule(
+        rule_id="e001-authentication-sequence",
+        pattern=_authentication_pattern(),
+        statement="The selected events form a candidate account authentication sequence.",
+        description="A failure, success, and host activity share an account identity in the configured time windows.",
     )
 
 
@@ -189,13 +244,7 @@ def _pipeline(repository, event_ids_by_type, record_property=None):
     correlations = CorrelationEngine(repository, _correlation_rules()).correlate_events(event_ids)
     correlation_seconds = perf_counter() - started
 
-    generation_rule = HypothesisGenerationRule(
-        rule_id="e001-authentication-sequence",
-        required_correlation_rule_ids=("e001-failure-success", "e001-success-host"),
-        minimum_correlations=2,
-        statement="The selected events form a candidate account authentication sequence.",
-        description="A failure, success, and host activity share an account identity in the configured time windows.",
-    )
+    generation_rule = _generation_rule()
     started = perf_counter()
     generated = HypothesisGenerationEngine(
         repository,
@@ -418,7 +467,7 @@ def test_e001_case_c_reversed_temporal_order_is_rejected(tmp_path, record_proper
     )
     correlations, generated = _pipeline(repository, event_ids, record_property)
     assert len(correlations) == 2
-    assert len(generated.hypotheses) == 1
+    assert generated.hypotheses == ()
     constructor, _ = _constructor(repository)
     with pytest.raises(PropositionConstructionError):
         constructor.construct(
@@ -453,7 +502,7 @@ def test_e001_case_e_multiple_matching_failures_are_ambiguous(tmp_path, record_p
     )
     correlations, generated = _pipeline(repository, event_ids, record_property)
     assert len(correlations) == 3
-    assert len(generated.hypotheses) == 1
+    assert generated.hypotheses == ()
     constructor, _ = _constructor(repository)
     with pytest.raises(PropositionConstructionError, match="event-role selection is ambiguous"):
         constructor.construct(
@@ -472,7 +521,7 @@ def test_e001_case_f_shared_ip_does_not_establish_shared_account(tmp_path, recor
     ]
     event_ids, observation_id = _ingest_specs(service, source, specs)
     correlations, generated = _pipeline(repository, event_ids, record_property)
-    assert len(correlations) == 1
+    assert len(correlations) == 2
     assert generated.hypotheses == ()
     constructor, _ = _constructor(repository)
     with pytest.raises(PropositionConstructionError, match="entity role account resolves to different entities"):

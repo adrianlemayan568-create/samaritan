@@ -17,6 +17,11 @@ from samaritan.database import DatabaseIntegrityError
 from samaritan.hypothesis_generation import HypothesisGenerationEngine
 from samaritan.hypothesis_generation_contracts import (
     HypothesisGenerationRule,
+    HypothesisPattern,
+    PatternCorrelationConstraint,
+    PatternEntityBinding,
+    PatternEventRole,
+    PatternTemporalConstraint,
 )
 
 from test_repository import (
@@ -88,13 +93,33 @@ def make_correlation_rules():
 
 def make_generation_rule(
     rule_id="suspicious-authentication-sequence",
-    required_rule_ids=("failure-success", "success-host"),
-    minimum_correlations=2,
+    participant_role="subject",
 ):
+    pattern = HypothesisPattern(
+        pattern_id="test-authentication-sequence",
+        version=1,
+        event_roles=(
+            PatternEventRole("failure", "authentication_failure"),
+            PatternEventRole("success", "authentication_success"),
+            PatternEventRole("host", "host_activity"),
+        ),
+        correlation_constraints=(
+            PatternCorrelationConstraint("failure", "success", "failure-success"),
+            PatternCorrelationConstraint("success", "host", "success-host"),
+        ),
+        entity_bindings=(
+            PatternEntityBinding("account", "failure", "user_account", participant_role),
+            PatternEntityBinding("account", "success", "user_account", participant_role),
+            PatternEntityBinding("account", "host", "user_account", participant_role),
+        ),
+        temporal_constraints=(
+            PatternTemporalConstraint("failure", "success", True, 300),
+            PatternTemporalConstraint("success", "host", True, 300),
+        ),
+    )
     return HypothesisGenerationRule(
         rule_id=rule_id,
-        required_correlation_rule_ids=required_rule_ids,
-        minimum_correlations=minimum_correlations,
+        pattern=pattern,
         statement="The observed sequence may indicate suspicious account activity",
         description=(
             "Authentication failure, subsequent success, and host activity "
@@ -212,9 +237,7 @@ def test_no_qualifying_pattern_returns_empty_result(tmp_path):
     )
     correlations = correlate_chain(repository, events)
 
-    rule = make_generation_rule(
-        required_rule_ids=("nonexistent-correlation-rule",),
-    )
+    rule = make_generation_rule(participant_role="missing-role")
 
     result = make_engine(repository, (rule,)).generate(correlations)
 
@@ -672,9 +695,7 @@ def test_invalid_irrelevant_correlation_is_rejected_before_pattern_matching(
         correlations[0],
         shared_entity_ids=(new_id(),),
     )
-    irrelevant_rule = make_generation_rule(
-        required_rule_ids=("no-such-correlation-rule",),
-    )
+    irrelevant_rule = make_generation_rule(participant_role="missing-role")
 
     with pytest.raises(
         DatabaseIntegrityError,
@@ -683,27 +704,56 @@ def test_invalid_irrelevant_correlation_is_rejected_before_pattern_matching(
         make_engine(repository, (irrelevant_rule,)).generate((forged,))
 
 
-def test_correlation_without_configured_match_is_rejected(tmp_path):
-    repository, _, source = make_repository(tmp_path)
-    user = make_entity("user_account", "synthetic-user")
-    events = make_event_chain(repository, source, user, source.created_at)
-    correlations = correlate_chain(repository, events)
+def test_engine_rejects_pattern_constraint_without_configured_rule(tmp_path):
+    repository, _, _ = make_repository(tmp_path)
     unrelated_rule = CorrelationRule(
         rule_id="unrelated-rule",
         event_type_pairs=(("unrelated_a", "unrelated_b"),),
         shared_entity_types=("user_account",),
         max_time_delta_seconds=300,
-        description="Does not match the persisted event pair",
+        description="Does not implement the declared pattern edge",
     )
+
+    with pytest.raises(ValueError, match="unconfigured correlation rule"):
+        HypothesisGenerationEngine(
+            repository,
+            (make_generation_rule(),),
+            correlation_rules=(unrelated_rule,),
+        )
+
+
+def test_correlation_without_configured_match_is_rejected(tmp_path):
+    repository, _, source = make_repository(tmp_path)
+    account = make_entity("user_account", "unconfigured-correlation-account")
+    valid_events = make_event_chain(repository, source, account, source.created_at)
+    unrelated_events = (
+        persist_test_event(
+            repository, source, account, "unrelated_a",
+            source.created_at + timedelta(minutes=10)
+        ),
+        persist_test_event(
+            repository, source, account, "unrelated_b",
+            source.created_at + timedelta(minutes=10, seconds=30)
+        ),
+    )
+    unrelated_rule = CorrelationRule(
+        rule_id="unconfigured-rule",
+        event_type_pairs=(("unrelated_a", "unrelated_b"),),
+        shared_entity_types=("user_account",),
+        max_time_delta_seconds=300,
+        description="An unrelated pair used to verify C-01 fail-closed behavior.",
+    )
+    unrelated_correlation = CorrelationEngine(
+        repository, (unrelated_rule,)
+    ).correlate_events(event.event_id for event in unrelated_events)
 
     with pytest.raises(
         DatabaseIntegrityError,
         match="no match under the configured correlation rules",
     ):
-        make_engine(
-            repository,
-            correlation_rules=(unrelated_rule,),
-        ).generate(correlations)
+        make_engine(repository).generate(
+            correlate_chain(repository, valid_events) + unrelated_correlation
+        )
 
 
 def test_engine_rejects_empty_correlation_rules(tmp_path):

@@ -1,7 +1,8 @@
 """E003: reconstructed evidence-integrity experiment.
 
 Synthetic-only tests reconstructed from the surviving E003 protocol and findings.
-This is not the lost original test file. No production source is modified.
+This is not the lost original test file. C-04 updates hypothesis-generation
+expectations to require complete, unambiguous event-role assignments.
 """
 
 from __future__ import annotations
@@ -17,7 +18,6 @@ from samaritan.contracts import new_id, parse_timestamp
 from samaritan.correlation import CorrelationEngine
 from samaritan.database import Database
 from samaritan.hypothesis_generation import HypothesisGenerationEngine
-from samaritan.hypothesis_generation_contracts import HypothesisGenerationRule
 from samaritan.ingestion import IngestionService
 from samaritan.evaluation_contracts import EvidenceSet
 from samaritan.proposition_construction import PropositionConstructionError
@@ -30,6 +30,7 @@ from test_e001_authentication_sequence import (
     _evidence_set,
     _ingest_specs,
     _sequence,
+    _generation_rule,
 )
 
 
@@ -119,23 +120,13 @@ def _ingest_single(
     return event_id, result.observation_id, timestamp_text
 
 
-def _generate(repository, event_ids, minimum_correlations):
+def _generate(repository, event_ids):
     correlations = CorrelationEngine(
         repository, _correlation_rules()
     ).correlate_events(event_ids)
-    rule = HypothesisGenerationRule(
-        rule_id=f"e003-minimum-{minimum_correlations}",
-        required_correlation_rule_ids=(
-            "e001-failure-success",
-            "e001-success-host",
-        ),
-        minimum_correlations=minimum_correlations,
-        statement="The selected synthetic events form a candidate authentication sequence.",
-        description="E003 controlled correlation-count comparison.",
-    )
     generated = HypothesisGenerationEngine(
         repository,
-        (rule,),
+        (_generation_rule(),),
         correlation_rules=_correlation_rules(),
     ).generate(correlations)
     return correlations, generated
@@ -220,9 +211,7 @@ def test_e003_case_b_distinct_record_identity_and_controlled_content_comparison(
             service, source, specs
         )
         event_ids = _all_event_ids(event_ids_by_type)
-        correlations, generated = _generate(
-            repository, event_ids, minimum_correlations=3
-        )
+        correlations, generated = _generate(repository, event_ids)
         failures = repository.list_events(observation_id=observation_id)
         failure_events = tuple(
             event for event in failures
@@ -240,11 +229,11 @@ def test_e003_case_b_distinct_record_identity_and_controlled_content_comparison(
     distinct = scenarios["different_content_control"]
 
     assert baseline["correlation_count"] == 2
-    assert baseline["hypothesis_count"] == 0
+    assert baseline["hypothesis_count"] == 1
     assert duplicate["correlation_count"] == 3
-    assert duplicate["hypothesis_count"] == 1
+    assert duplicate["hypothesis_count"] == 0
     assert distinct["correlation_count"] == 3
-    assert distinct["hypothesis_count"] == 1
+    assert distinct["hypothesis_count"] == 0
 
     duplicate_events = duplicate["failure_events"]
     distinct_events = distinct["failure_events"]
@@ -256,10 +245,10 @@ def test_e003_case_b_distinct_record_identity_and_controlled_content_comparison(
     assert distinct_events[0].occurred_at == distinct_events[1].occurred_at
     assert distinct_events[0].normalized_data_json != distinct_events[1].normalized_data_json
 
-    # The controlled content change does not alter correlation matching:
-    # the engine uses event types, shared participant entities, and time.
+    # Content changes do not alter correlation counts. Both two-failure
+    # scenarios are rejected because either failure could fill the same role.
     assert duplicate["correlation_count"] == distinct["correlation_count"]
-    assert duplicate["hypothesis_count"] == distinct["hypothesis_count"]
+    assert duplicate["hypothesis_count"] == distinct["hypothesis_count"] == 0
 
     record_property("e003.case_b.baseline_correlations", baseline["correlation_count"])
     record_property("e003.case_b.duplicate_content_correlations", duplicate["correlation_count"])
@@ -406,9 +395,7 @@ def test_e003_case_e_delayed_historical_event_retains_receipt_and_event_order(
     assert delayed_failure.occurred_at < delayed_observation.received_at
 
     event_ids = (failure_id, success_id, host_id)
-    correlations, generated = _generate(
-        repository, event_ids, minimum_correlations=2
-    )
+    correlations, generated = _generate(repository, event_ids)
     assert len(correlations) == 2
     assert len(generated.hypotheses) == 1
 
