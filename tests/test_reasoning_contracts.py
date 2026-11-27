@@ -937,7 +937,7 @@ def test_diagnosticity_synthesis_rejects_uncalibrated_high_confidence_ceiling():
 
 
 def test_evaluation_record_rejects_forged_zero_finding_supported_synthesis():
-    specification, _, _ = make_specification()
+    specification, criterion, _ = make_specification()
     outcomes = CriterionOutcomeRegistry()
     synthesis = DiagnosticitySynthesizer().synthesize(
         specification, (), outcomes, production=False
