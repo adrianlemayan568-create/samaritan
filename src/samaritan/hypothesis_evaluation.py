@@ -12,6 +12,7 @@ from samaritan.contracts import normalize_timestamp
 from samaritan.diagnosticity import DiagnosticitySynthesizer
 from samaritan.evaluation_contracts import EvidenceSet
 from samaritan.reasoning_contracts import (
+    AlternativeEvaluation,
     CriterionEvaluatorRegistry,
     CriterionOutcomeRegistry,
     HypothesisEvaluationRecord,
@@ -148,13 +149,63 @@ class HypothesisEvaluationEngine:
             specification.hypothesis.proposition,
             production=production,
         )
+        # Resolve and authenticate every persisted EvidenceSet before any
+        # criterion evaluator runs. Each alternative is evaluated only against
+        # the exact historical selection named by its own proposition manifest.
+        persisted_focal_set = self.repository.get_evidence_set(
+            focal_proposition.evidence_manifest.evidence_set_id
+        )
+        if (
+            type(persisted_focal_set) is not EvidenceSet
+            or persisted_focal_set.evidence_set_id != evidence_set.evidence_set_id
+            or persisted_focal_set.evidence != evidence_set.evidence
+        ):
+            raise ValueError(
+                "focal proposition EvidenceSet must match its persisted historical selection"
+            )
+
+        alternative_evidence_sets = []
+        for alternative in specification.alternatives:
+            proposition = alternative.proposition
+            persisted_set = self.repository.get_evidence_set(
+                proposition.evidence_manifest.evidence_set_id
+            )
+            if (
+                type(persisted_set) is not EvidenceSet
+                or persisted_set.evidence_set_id
+                != proposition.evidence_manifest.evidence_set_id
+                or persisted_set.evidence != proposition.evidence_manifest.evidence
+            ):
+                raise ValueError(
+                    "alternative proposition EvidenceSet must match its persisted historical selection"
+                )
+            alternative_evidence_sets.append(persisted_set)
+
         findings = tuple(
             self.criterion_engine.evaluate(
                 criterion,
-                specification.hypothesis.proposition,
+                focal_proposition,
                 evidence_set,
             )
             for criterion in rule.criterion_definitions
+        )
+        alternative_evaluations = tuple(
+            AlternativeEvaluation(
+                alternative_id=alternative.alternative_id,
+                proposition_id=alternative.proposition.proposition_id,
+                evidence_set_id=alternative_evidence_set.evidence_set_id,
+                findings=tuple(
+                    self.criterion_engine.evaluate(
+                        criterion,
+                        alternative.proposition,
+                        alternative_evidence_set,
+                    )
+                    for criterion in rule.criterion_definitions
+                ),
+            )
+            for alternative, alternative_evidence_set in zip(
+                specification.alternatives, alternative_evidence_sets
+            )
         )
         synthesis = self.synthesizer.synthesize(
             specification,
@@ -174,6 +225,17 @@ class HypothesisEvaluationEngine:
                 "evaluation_rule_version": rule.rule_version,
                 "evidence_set_id": evidence_set.evidence_set_id,
                 "finding_ids": sorted(item.finding_id for item in findings),
+                "alternative_evaluations": [
+                    {
+                        "alternative_id": item.alternative_id,
+                        "proposition_id": item.proposition_id,
+                        "evidence_set_id": item.evidence_set_id,
+                        "finding_ids": sorted(
+                            finding.finding_id for finding in item.findings
+                        ),
+                    }
+                    for item in alternative_evaluations
+                ],
                 "outcome": synthesis.outcome,
                 "confidence_ceiling": synthesis.confidence_ceiling,
                 "reason_codes": synthesis.reason_codes,
@@ -211,6 +273,7 @@ class HypothesisEvaluationEngine:
             evaluated_at=normalize_timestamp(self.clock(), "clock timestamp"),
             findings=findings,
             synthesis=synthesis,
+            alternative_evaluations=alternative_evaluations,
         )
         record.validate_against(
             specification,
