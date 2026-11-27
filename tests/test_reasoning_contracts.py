@@ -400,6 +400,108 @@ def test_hypothesis_evaluation_record_preserves_exact_rule_identity():
 
 
 
+def test_evaluation_record_requires_one_result_for_each_declared_alternative():
+    specification, criterion, _ = make_specification()
+    outcomes = CriterionOutcomeRegistry()
+    outcomes.register(CriterionOutcomeDefinition(
+        criterion_type=criterion.criterion_type,
+        outcome_code="observed",
+        meaning="Independent account-holder confirmation.",
+    ))
+    finding = CriterionFinding(
+        finding_id=str(uuid4()),
+        criterion_id=criterion.criterion_id,
+        status="matched",
+        outcome_code="observed",
+        evidence=(EvidenceReference(event_id=str(uuid4())),),
+        rationale="A registered criterion result.",
+    )
+    synthesis = DiagnosticitySynthesizer().synthesize(
+        specification, (finding,), outcomes
+    )
+    record = HypothesisEvaluationRecord(
+        evaluation_id=str(uuid4()),
+        hypothesis_id=specification.hypothesis.hypothesis_id,
+        evaluation_rule_id=specification.evaluation_rule.evaluation_rule_id,
+        evaluation_rule_version=specification.evaluation_rule.rule_version,
+        evidence_set_id=str(uuid4()),
+        assessment_id=str(uuid4()),
+        evaluated_at=datetime.now(timezone.utc),
+        findings=(finding,),
+        synthesis=synthesis,
+    )
+    with pytest.raises(ValueError, match="exactly one ordered result"):
+        record.validate_against(specification, outcomes, production=True)
+
+
+def test_alternative_evaluation_rejects_misattributed_proposition():
+    specification, criterion, alternative = make_specification()
+    outcomes = CriterionOutcomeRegistry()
+    outcomes.register(CriterionOutcomeDefinition(
+        criterion_type=criterion.criterion_type,
+        outcome_code="observed",
+        meaning="Independent account-holder confirmation.",
+    ))
+    finding = CriterionFinding(
+        finding_id=str(uuid4()),
+        criterion_id=criterion.criterion_id,
+        status="matched",
+        outcome_code="observed",
+        evidence=(EvidenceReference(event_id=str(uuid4())),),
+        rationale="A registered criterion result.",
+    )
+    result = AlternativeEvaluation(
+        alternative_id=alternative.alternative_id,
+        proposition_id=str(uuid4()),
+        evidence_set_id=alternative.proposition.evidence_manifest.evidence_set_id,
+        findings=(finding,),
+    )
+    with pytest.raises(ValueError, match="proposition ID"):
+        result.validate_against(
+            alternative, specification.evaluation_rule.criterion_definitions, outcomes
+        )
+
+
+def test_evaluation_record_rejects_duplicate_alternative_results():
+    specification, criterion, alternative = make_specification()
+    outcomes = CriterionOutcomeRegistry()
+    outcomes.register(CriterionOutcomeDefinition(
+        criterion_type=criterion.criterion_type,
+        outcome_code="observed",
+        meaning="Independent account-holder confirmation.",
+    ))
+    finding = CriterionFinding(
+        finding_id=str(uuid4()),
+        criterion_id=criterion.criterion_id,
+        status="matched",
+        outcome_code="observed",
+        evidence=(EvidenceReference(event_id=str(uuid4())),),
+        rationale="A registered criterion result.",
+    )
+    synthesis = DiagnosticitySynthesizer().synthesize(
+        specification, (finding,), outcomes
+    )
+    result = AlternativeEvaluation(
+        alternative_id=alternative.alternative_id,
+        proposition_id=alternative.proposition.proposition_id,
+        evidence_set_id=alternative.proposition.evidence_manifest.evidence_set_id,
+        findings=(finding,),
+    )
+    with pytest.raises(ValueError, match="unique alternative IDs"):
+        HypothesisEvaluationRecord(
+            evaluation_id=str(uuid4()),
+            hypothesis_id=specification.hypothesis.hypothesis_id,
+            evaluation_rule_id=specification.evaluation_rule.evaluation_rule_id,
+            evaluation_rule_version=specification.evaluation_rule.rule_version,
+            evidence_set_id=str(uuid4()),
+            assessment_id=str(uuid4()),
+            evaluated_at=datetime.now(timezone.utc),
+            findings=(finding,),
+            synthesis=synthesis,
+            alternative_evaluations=(result, result),
+        )
+
+
 def test_opposing_findings_across_independent_criteria_aggregate_as_conflicting():
     specification, first_criterion, alternative = make_specification()
     second_criterion = CriterionDefinition(
