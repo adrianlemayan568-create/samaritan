@@ -419,7 +419,7 @@ def test_finding_evidence_is_isolated_between_simultaneous_alternatives(
             HypothesisAlternative(
                 alternative_id=new_id(),
                 proposition=proposition,
-                description=f"Independent synthetic alternative for {account}.",
+                description=f"Separately constructed synthetic alternative for {account}.",
             )
         )
         alternative_event_ids.append(
