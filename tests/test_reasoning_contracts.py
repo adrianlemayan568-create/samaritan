@@ -18,6 +18,7 @@ from samaritan.proposition_contracts import (
 from samaritan.proposition_semantics import build_default_proposition_semantics_registry
 from samaritan.proposition_semantics_fingerprint import proposition_semantics_fingerprint
 from samaritan.reasoning_contracts import (
+    AlternativeEvaluation,
     BearingDefinition,
     CriterionDefinition,
     CriterionFinding,
@@ -382,6 +383,16 @@ def test_hypothesis_evaluation_record_preserves_exact_rule_identity():
         evaluated_at=datetime.now(timezone.utc),
         findings=(finding,),
         synthesis=synthesis,
+        alternative_evaluations=(
+            AlternativeEvaluation(
+                alternative_id=specification.alternatives[0].alternative_id,
+                proposition_id=specification.alternatives[0].proposition.proposition_id,
+                evidence_set_id=(
+                    specification.alternatives[0].proposition.evidence_manifest.evidence_set_id
+                ),
+                findings=(finding,),
+            ),
+        ),
     )
     record.validate_against(specification, outcomes, production=True)
     assert record.evaluation_rule_id == specification.evaluation_rule.evaluation_rule_id
