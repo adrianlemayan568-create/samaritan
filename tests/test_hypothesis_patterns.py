@@ -5,6 +5,7 @@ from datetime import timedelta
 
 from samaritan.contracts import new_id
 from samaritan.correlation import CorrelationEngine
+from samaritan.correlation_contracts import CorrelationRule
 from samaritan.hypothesis_generation import HypothesisGenerationEngine
 from samaritan.hypothesis_generation_contracts import (
     HypothesisGenerationRule,
