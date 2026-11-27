@@ -49,16 +49,22 @@ def validate_text(value: str, field_name: str) -> str:
 
 
 def validate_identifier(value: str, field_name: str) -> str:
-    """Validate a bounded registry identifier without control or spoofing characters."""
+    """Validate bounded ASCII identifiers with precomposed Latin-1 letters."""
     value = validate_text(value, field_name)
     if len(value) > 128 or not value[0].isalpha():
         raise ValueError(f"{field_name} must be a 1-128 character identifier")
     for char in value:
         if char.isascii() and (char.isalnum() or char in "_.-"):
             continue
-        # Permit precomposed Latin letters (e.g. Café), but reject other
-        # scripts that create visually confusable registry keys.
-        if char.isalpha() and "LATIN" in unicodedata.name(char, ""):
+        # Permit only precomposed Latin-1 letters beyond ASCII. This excludes
+        # Latin Extended lookalikes and combining marks; it is not full
+        # Unicode confusable detection.
+        name = unicodedata.name(char, "")
+        if (
+            "\u00C0" <= char <= "\u00FF"
+            and char.isalpha()
+            and name.startswith("LATIN ")
+        ):
             continue
         raise ValueError(
             f"{field_name} contains a disallowed or visually ambiguous character"
