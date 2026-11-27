@@ -843,11 +843,25 @@ def test_temporal_constraint_requires_integer_interval_limit():
 
 @pytest.mark.parametrize(
     "identifier",
-    ["bad\\nname", "bad\\x00name", "name@version", "a" * 129, "аccount"],
+    [
+        "bad\\nname",
+        "bad\\x00name",
+        "name@version",
+        "a" * 129,
+        "аccount",
+        "admın",
+        "Cafe\\u0301",
+    ],
 )
 def test_semantics_rejects_hostile_or_ambiguous_identifiers(identifier):
     with pytest.raises(ValueError):
         make_semantics(proposition_type=identifier)
+
+
+def test_semantics_accepts_precomposed_latin1_identifier():
+    semantics = make_semantics(proposition_type="Café")
+
+    assert semantics.proposition_type == "Café"
 
 
 def test_semantics_registry_can_be_frozen_and_exposes_read_only_definitions():
