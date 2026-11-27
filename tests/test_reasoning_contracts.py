@@ -142,6 +142,34 @@ def make_specification(focal=None, outcome="observed"):
         evaluation_rule=rule,
     ), criterion, alternative
 
+
+def make_attacker_influenceable_specification(
+    focal_judgment="expected",
+    alternative_judgment="unexpected",
+):
+    specification, criterion, _ = make_specification()
+    influenceable = replace(criterion, attacker_influenceable=True)
+    bearings = tuple(
+        replace(
+            item,
+            focal_judgment=focal_judgment,
+            alternative_judgment=(
+                "compatible"
+                if item.alternative_id == RESIDUAL_ALTERNATIVE_ID
+                else alternative_judgment
+            ),
+            evaluability_role="contextual",
+        )
+        for item in specification.evaluation_rule.bearing_definitions
+    )
+    rule = replace(
+        specification.evaluation_rule,
+        criterion_definitions=(influenceable,),
+        bearing_definitions=bearings,
+    )
+    return replace(specification, evaluation_rule=rule), influenceable
+
+
 def make_alternative_evaluation(specification, criterion):
     alternative = specification.alternatives[0]
     finding = CriterionFinding(
@@ -211,6 +239,221 @@ def test_supported_synthesis_is_ordinal_and_residual_does_not_block():
     assert result.outcome == "supported"
     assert result.confidence_ceiling == "moderate"
     assert result.alternative_standings[0].standing == "favors_focal"
+
+
+def test_attacker_influenceable_finding_cannot_support_focal_proposition():
+    specification, criterion = make_attacker_influenceable_specification()
+    outcomes = CriterionOutcomeRegistry()
+    outcomes.register(CriterionOutcomeDefinition(
+        criterion_type=criterion.criterion_type,
+        outcome_code="observed",
+        meaning="An attacker-influenceable observation was recorded.",
+    ))
+    finding = CriterionFinding(
+        finding_id=str(uuid4()),
+        criterion_id=criterion.criterion_id,
+        status="matched",
+        outcome_code="observed",
+        evidence=(EvidenceReference(event_id=str(uuid4())),),
+        rationale="The observation would otherwise favor the focal proposition.",
+    )
+
+    result = DiagnosticitySynthesizer().synthesize(
+        specification, (finding,), outcomes
+    )
+
+    assert result.outcome == "inconclusive"
+    assert result.confidence_ceiling == "low"
+    assert result.alternative_standings[0].standing == "non_discriminating"
+    assert (
+        f"attacker_influenceable_criterion_excluded:{criterion.criterion_id}"
+        in result.reason_codes
+    )
+
+
+def test_attacker_influenceable_contradiction_cannot_refute_focal_proposition():
+    specification, criterion = make_attacker_influenceable_specification(
+        focal_judgment="incompatible",
+        alternative_judgment="expected",
+    )
+    outcomes = CriterionOutcomeRegistry()
+    outcomes.register(CriterionOutcomeDefinition(
+        criterion_type=criterion.criterion_type,
+        outcome_code="observed",
+        meaning="An attacker-influenceable observation contradicts the focal proposition.",
+    ))
+    finding = CriterionFinding(
+        finding_id=str(uuid4()),
+        criterion_id=criterion.criterion_id,
+        status="matched",
+        outcome_code="observed",
+        evidence=(EvidenceReference(event_id=str(uuid4())),),
+        rationale="The observation would otherwise contradict the focal proposition.",
+    )
+
+    result = DiagnosticitySynthesizer().synthesize(
+        specification, (finding,), outcomes
+    )
+
+    assert result.outcome == "inconclusive"
+    assert result.confidence_ceiling == "low"
+    assert result.alternative_standings[0].standing == "non_discriminating"
+    assert "complete_non_influenceable_focal_contradiction" not in result.reason_codes
+
+
+def test_attacker_influenceable_finding_cannot_raise_residual_confidence_ceiling():
+    specification, criterion = make_attacker_influenceable_specification(
+        focal_judgment="expected",
+        alternative_judgment="expected",
+    )
+    outcomes = CriterionOutcomeRegistry()
+    outcomes.register(CriterionOutcomeDefinition(
+        criterion_type=criterion.criterion_type,
+        outcome_code="observed",
+        meaning="An attacker-influenceable observation discriminates from the residual.",
+    ))
+    finding = CriterionFinding(
+        finding_id=str(uuid4()),
+        criterion_id=criterion.criterion_id,
+        status="matched",
+        outcome_code="observed",
+        evidence=(EvidenceReference(event_id=str(uuid4())),),
+        rationale="The observation would otherwise discriminate from the residual.",
+    )
+
+    result = DiagnosticitySynthesizer().synthesize(
+        specification, (finding,), outcomes
+    )
+
+    assert result.confidence_ceiling == "low"
+    assert "no_outcome_discriminates_focal_from_residual" in result.reason_codes
+
+
+def test_attacker_influenceable_finding_does_not_change_trusted_synthesis():
+    specification, trusted_criterion, _ = make_specification()
+    influenceable = replace(
+        trusted_criterion,
+        criterion_id="attacker-controlled-context",
+        criterion_type="attacker_controlled_context",
+        independence_assertion_id="attacker-controlled-assertion",
+        attacker_influenceable=True,
+    )
+    influenceable_bearings = tuple(
+        replace(
+            item,
+            criterion_id=influenceable.criterion_id,
+            focal_judgment="expected",
+            alternative_judgment=(
+                "compatible"
+                if item.alternative_id == RESIDUAL_ALTERNATIVE_ID
+                else "unexpected"
+            ),
+            evaluability_role="contextual",
+        )
+        for item in specification.evaluation_rule.bearing_definitions
+    )
+    rule = replace(
+        specification.evaluation_rule,
+        criterion_definitions=(trusted_criterion, influenceable),
+        bearing_definitions=(
+            *specification.evaluation_rule.bearing_definitions,
+            *influenceable_bearings,
+        ),
+    )
+    specification = replace(specification, evaluation_rule=rule)
+    outcomes = CriterionOutcomeRegistry()
+    for criterion in (trusted_criterion, influenceable):
+        outcomes.register(CriterionOutcomeDefinition(
+            criterion_type=criterion.criterion_type,
+            outcome_code="observed",
+            meaning="The registered observation was obtained.",
+        ))
+    trusted_finding = CriterionFinding(
+        finding_id=str(uuid4()),
+        criterion_id=trusted_criterion.criterion_id,
+        status="matched",
+        outcome_code="observed",
+        evidence=(EvidenceReference(event_id=str(uuid4())),),
+        rationale="Trusted evidence favors the focal proposition.",
+    )
+    influenceable_finding = CriterionFinding(
+        finding_id=str(uuid4()),
+        criterion_id=influenceable.criterion_id,
+        status="matched",
+        outcome_code="observed",
+        evidence=(EvidenceReference(event_id=str(uuid4())),),
+        rationale="Attacker-controlled evidence also appears to favor the focal proposition.",
+    )
+    synthesizer = DiagnosticitySynthesizer()
+
+    trusted_only = synthesizer.synthesize(
+        specification, (trusted_finding,), outcomes
+    )
+    with_influenceable = synthesizer.synthesize(
+        specification, (trusted_finding, influenceable_finding), outcomes
+    )
+
+    assert with_influenceable == trusted_only
+    assert with_influenceable.outcome == "supported"
+    assert with_influenceable.confidence_ceiling == "moderate"
+    assert influenceable_finding.finding_id not in (
+        with_influenceable.alternative_standings[0].supporting_finding_ids
+        + with_influenceable.alternative_standings[0].opposing_finding_ids
+        + with_influenceable.alternative_standings[0].non_discriminating_finding_ids
+    )
+
+
+def test_attacker_influenceable_finding_is_retained_in_evaluation_record():
+    specification, criterion = make_attacker_influenceable_specification()
+    outcomes = CriterionOutcomeRegistry()
+    outcomes.register(CriterionOutcomeDefinition(
+        criterion_type=criterion.criterion_type,
+        outcome_code="observed",
+        meaning="An attacker-influenceable observation was recorded.",
+    ))
+    finding = CriterionFinding(
+        finding_id=str(uuid4()),
+        criterion_id=criterion.criterion_id,
+        status="matched",
+        outcome_code="observed",
+        evidence=(EvidenceReference(event_id=str(uuid4())),),
+        rationale="The factual evaluation result is retained for audit.",
+    )
+    synthesis = DiagnosticitySynthesizer().synthesize(
+        specification, (finding,), outcomes
+    )
+    record = HypothesisEvaluationRecord(
+        evaluation_id=str(uuid4()),
+        hypothesis_id=specification.hypothesis.hypothesis_id,
+        evaluation_rule_id=specification.evaluation_rule.evaluation_rule_id,
+        evaluation_rule_version=specification.evaluation_rule.rule_version,
+        evidence_set_id=specification.hypothesis.proposition.evidence_manifest.evidence_set_id,
+        assessment_id=str(uuid4()),
+        evaluated_at=datetime.now(timezone.utc),
+        findings=(finding,),
+        alternative_evaluations=(make_alternative_evaluation(specification, criterion),),
+        synthesis=synthesis,
+    )
+
+    record.validate_against(specification, outcomes, production=True)
+
+    assert record.findings == (finding,)
+    assert record.findings[0].status == "matched"
+    assert record.synthesis.outcome == "inconclusive"
+
+
+def test_rule_rejects_required_attacker_influenceable_criterion():
+    specification, criterion, _ = make_specification()
+    influenceable = replace(criterion, attacker_influenceable=True)
+
+    with pytest.raises(
+        ValueError,
+        match="attacker-influenceable criteria cannot have required bearings",
+    ):
+        replace(
+            specification.evaluation_rule,
+            criterion_definitions=(influenceable,),
+        )
 
 
 def test_missing_required_finding_is_inconclusive():
