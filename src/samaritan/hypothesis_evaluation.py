@@ -103,9 +103,9 @@ class HypothesisEvaluationEngine:
             )
 
         # Authenticate the historical construction selection for every
-        # proposition before any criterion evaluator can run. Alternatives
-        # retain their own construction evidence; comparative evaluation
-        # below still uses only the focal proposition's EvidenceSet.
+        # proposition before any criterion evaluator can run. Each proposition
+        # retains and is evaluated against its own EvidenceSet; synthesis remains
+        # focal-only until a separate comparative policy is approved.
         propositions = (
             focal_proposition,
             *(item.proposition for item in specification.alternatives),
