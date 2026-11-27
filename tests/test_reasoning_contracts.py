@@ -142,6 +142,24 @@ def make_specification(focal=None, outcome="observed"):
         evaluation_rule=rule,
     ), criterion, alternative
 
+def make_alternative_evaluation(specification, criterion):
+    alternative = specification.alternatives[0]
+    finding = CriterionFinding(
+        finding_id=str(uuid4()),
+        criterion_id=criterion.criterion_id,
+        status="insufficient",
+        outcome_code=None,
+        evidence=(),
+        rationale="Alternative-specific evidence is insufficient for this test fixture.",
+        missing_information=("Complete alternative-specific evidence",),
+    )
+    return AlternativeEvaluation(
+        alternative_id=alternative.alternative_id,
+        proposition_id=alternative.proposition.proposition_id,
+        evidence_set_id=alternative.proposition.evidence_manifest.evidence_set_id,
+        findings=(finding,),
+    )
+
 
 def test_insufficient_finding_has_no_outcome_code_or_bearing():
     finding = CriterionFinding(
@@ -934,6 +952,7 @@ def test_evaluation_record_rejects_forged_zero_finding_supported_synthesis():
         assessment_id=str(uuid4()),
         evaluated_at=datetime.now(timezone.utc),
         findings=(),
+        alternative_evaluations=(make_alternative_evaluation(specification, criterion),),
         synthesis=forged_synthesis,
     )
 
@@ -982,6 +1001,7 @@ def test_evaluation_record_rejects_synthesis_forged_against_valid_finding():
         assessment_id=str(uuid4()),
         evaluated_at=datetime.now(timezone.utc),
         findings=(finding,),
+        alternative_evaluations=(make_alternative_evaluation(specification, criterion),),
         synthesis=forged_synthesis,
     )
 
@@ -1027,6 +1047,7 @@ def test_evaluation_record_validation_uses_explicit_experimental_mode():
         assessment_id=str(uuid4()),
         evaluated_at=datetime.now(timezone.utc),
         findings=(finding,),
+        alternative_evaluations=(make_alternative_evaluation(specification, criterion),),
         synthesis=synthesis,
     )
 
@@ -1061,6 +1082,7 @@ def test_evaluation_record_rejects_finding_with_unregistered_outcome():
         assessment_id=str(uuid4()),
         evaluated_at=datetime.now(timezone.utc),
         findings=(finding,),
+        alternative_evaluations=(make_alternative_evaluation(specification, criterion),),
         synthesis=synthesis,
     )
 
@@ -1094,6 +1116,7 @@ def test_evaluation_record_rejects_supported_synthesis_from_only_insufficient_fi
         assessment_id=str(uuid4()),
         evaluated_at=datetime.now(timezone.utc),
         findings=(finding,),
+        alternative_evaluations=(make_alternative_evaluation(specification, criterion),),
         synthesis=forged_synthesis,
     )
 
