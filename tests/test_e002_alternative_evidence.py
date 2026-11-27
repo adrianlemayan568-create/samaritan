@@ -160,7 +160,7 @@ def test_e002_orchestration_evaluates_alternative_against_own_evidence(
         comparisons.append(
             {
                 "label": label,
-                "alternative_outcome": alternative_finding.outcome_code,
+                "alternative_outcome": alternative_evaluation.findings[0].outcome_code,
                 "orchestration_finding": record.findings[0].outcome_code,
                 "synthesis_outcome": record.synthesis.outcome,
                 "confidence_ceiling": record.synthesis.confidence_ceiling,
