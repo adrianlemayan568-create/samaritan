@@ -80,6 +80,12 @@ class DiagnosticitySynthesizer:
         residual_discriminator = False
 
         for criterion in rule.criterion_definitions:
+            if criterion.attacker_influenceable:
+                reason_codes.append(
+                    f"attacker_influenceable_criterion_excluded:{criterion.criterion_id}"
+                )
+                continue
+
             finding = findings_by_criterion.get(criterion.criterion_id)
             if finding is None:
                 reason_codes.append(f"missing_finding:{criterion.criterion_id}")
