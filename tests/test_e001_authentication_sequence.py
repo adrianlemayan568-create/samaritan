@@ -329,7 +329,7 @@ def _evaluate_neutrally(repository, semantics, focal, focal_set, alternative, ge
             alternative_judgment="compatible",
             evaluability_role="required",
             rationale="This experimental bearing deliberately does not discriminate.",
-            basis="Neutral E001 policy: the current engine does not evaluate criteria against alternative-specific evidence.",
+            basis="Neutral E001 policy: C-05A records alternative-specific findings but does not yet interpret them comparatively in synthesis.",
             author="E001 experimental protocol",
             review_status="reviewed",
         )
