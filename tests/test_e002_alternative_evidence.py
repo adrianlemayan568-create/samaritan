@@ -1,7 +1,7 @@
-"""E002: controlled test of alternative-specific evidence evaluation.
+"""E002 regression: orchestration evaluates each alternative on its own evidence.
 
-Synthetic-only experiment. The focal proposition and EvidenceSet remain
-constant while alternative-specific evidence changes.
+Synthetic-only test. The focal proposition and EvidenceSet remain constant
+while alternative-specific evidence changes.
 """
 
 from time import perf_counter
@@ -22,7 +22,7 @@ from test_e001_authentication_sequence import (
 )
 
 
-def test_e002_alternative_evidence_changes_independent_finding_not_orchestration(
+def test_e002_orchestration_evaluates_alternative_against_own_evidence(
     tmp_path, record_property
 ):
     repository, source, service = _context(tmp_path)
@@ -122,15 +122,34 @@ def test_e002_alternative_evidence_changes_independent_finding_not_orchestration
             EvidenceReference(observation_id=alternative_observation_id),
         )
 
-        # System under test: orchestration should still evaluate only focal
-        # evidence, even though it authenticates the alternative manifest.
+        # System under test: orchestration evaluates the focal proposition
+        # and the alternative against their separate authenticated selections.
         started = perf_counter()
         record = engine.evaluate(specification, focal_set, production=False)
         orchestration_seconds = perf_counter() - started
+        repeated_record = engine.evaluate(
+            specification, focal_set, production=False
+        )
 
         assert len(record.findings) == 1
         assert record.findings[0] == focal_finding
         assert record.findings[0].outcome_code == "equal"
+        assert len(record.alternative_evaluations) == 1
+        alternative_evaluation = record.alternative_evaluations[0]
+        assert alternative_evaluation.alternative_id == stable_alternative_id
+        assert alternative_evaluation.proposition_id == alternative.proposition_id
+        assert alternative_evaluation.evidence_set_id == alternative_set.evidence_set_id
+        assert alternative_evaluation.findings == (alternative_finding,)
+        assert alternative_evaluation.findings[0].outcome_code == (
+            expected_alternative_outcome
+        )
+        assert record.evaluation_id == repeated_record.evaluation_id
+        assert (
+            alternative_evaluation.findings[0].finding_id
+            == repeated_record.alternative_evaluations[0].findings[0].finding_id
+        )
+        # C-05A preserves the existing focal-only synthesis policy. Independent
+        # alternative findings are recorded, not yet interpreted comparatively.
         assert record.synthesis.outcome == "inconclusive"
         assert record.synthesis.confidence_ceiling == "low"
         assert all(
@@ -161,8 +180,8 @@ def test_e002_alternative_evidence_changes_independent_finding_not_orchestration
             orchestration_seconds,
         )
 
-    # The alternative-specific control findings change; the orchestration
-    # findings and synthesis do not.
+    # Alternative-specific orchestration findings now change with their own
+    # evidence. Focal findings and C-05A's intentionally unchanged synthesis do not.
     assert [item["alternative_outcome"] for item in comparisons] == [
         "not_equal",
         "equal",
@@ -182,4 +201,3 @@ def test_e002_alternative_evidence_changes_independent_finding_not_orchestration
 
     record_property("e002.comparison_count", len(comparisons))
     record_property("e002.focal_evidence_set_unchanged", True)
-    record_property("e002.production_source_modified", False)
