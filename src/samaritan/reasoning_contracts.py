@@ -728,6 +728,58 @@ class DiagnosticitySynthesis:
 
 
 @dataclass(frozen=True, slots=True)
+class AlternativeEvaluation:
+    """Preserve criterion findings for one alternative and its own EvidenceSet."""
+
+    alternative_id: str
+    proposition_id: str
+    evidence_set_id: str
+    findings: tuple[CriterionFinding, ...]
+    schema_version: int = SCHEMA_VERSION
+
+    def __post_init__(self) -> None:
+        for name in ("alternative_id", "proposition_id", "evidence_set_id"):
+            object.__setattr__(self, name, validate_id(getattr(self, name), name))
+        if not isinstance(self.findings, tuple) or not all(
+            type(item) is CriterionFinding for item in self.findings
+        ):
+            raise TypeError("alternative findings must be a tuple of CriterionFinding objects")
+        criterion_ids = tuple(item.criterion_id for item in self.findings)
+        if len(criterion_ids) != len(set(criterion_ids)):
+            raise ValueError("alternative evaluation findings must have unique criterion IDs")
+        _schema(self.schema_version, "alternative evaluation")
+
+    def validate_against(
+        self,
+        alternative: HypothesisAlternative,
+        criterion_definitions: tuple[CriterionDefinition, ...],
+        outcome_registry: CriterionOutcomeRegistry,
+    ) -> None:
+        """Require exact alternative, manifest, criterion, and outcome identity."""
+        if type(alternative) is not HypothesisAlternative:
+            raise TypeError("alternative must be a HypothesisAlternative")
+        if not isinstance(criterion_definitions, tuple) or not all(
+            type(item) is CriterionDefinition for item in criterion_definitions
+        ):
+            raise TypeError("criterion_definitions must be a tuple of CriterionDefinition objects")
+        if type(outcome_registry) is not CriterionOutcomeRegistry:
+            raise TypeError("outcome_registry must be a CriterionOutcomeRegistry")
+        proposition = alternative.proposition
+        if self.alternative_id != alternative.alternative_id:
+            raise ValueError("alternative evaluation ID does not match its specification")
+        if self.proposition_id != proposition.proposition_id:
+            raise ValueError("alternative evaluation proposition ID does not match its specification")
+        if self.evidence_set_id != proposition.evidence_manifest.evidence_set_id:
+            raise ValueError("alternative evaluation EvidenceSet ID does not match its proposition manifest")
+        expected_criterion_ids = tuple(item.criterion_id for item in criterion_definitions)
+        actual_criterion_ids = tuple(item.criterion_id for item in self.findings)
+        if actual_criterion_ids != expected_criterion_ids:
+            raise ValueError("alternative evaluation findings do not match the exact criterion definitions")
+        for finding, criterion in zip(self.findings, criterion_definitions):
+            finding.validate_against(criterion, outcome_registry)
+
+
+@dataclass(frozen=True, slots=True)
 class HypothesisEvaluationRecord:
     """Preserve the exact rule, findings and synthesis used for one evaluation."""
 
@@ -740,6 +792,7 @@ class HypothesisEvaluationRecord:
     evaluated_at: datetime
     findings: tuple[CriterionFinding, ...]
     synthesis: DiagnosticitySynthesis
+    alternative_evaluations: tuple[AlternativeEvaluation, ...] = ()
     schema_version: int = SCHEMA_VERSION
 
     def __post_init__(self) -> None:
@@ -762,6 +815,13 @@ class HypothesisEvaluationRecord:
             raise ValueError("evaluation findings must have unique criterion IDs")
         if type(self.synthesis) is not DiagnosticitySynthesis:
             raise TypeError("synthesis must be a DiagnosticitySynthesis")
+        if not isinstance(self.alternative_evaluations, tuple) or not all(
+            type(item) is AlternativeEvaluation for item in self.alternative_evaluations
+        ):
+            raise TypeError("alternative_evaluations must be a tuple of AlternativeEvaluation objects")
+        alternative_ids = tuple(item.alternative_id for item in self.alternative_evaluations)
+        if len(alternative_ids) != len(set(alternative_ids)):
+            raise ValueError("alternative evaluations must have unique alternative IDs")
         _schema(self.schema_version, "hypothesis evaluation record")
 
     def validate_against(
@@ -785,6 +845,25 @@ class HypothesisEvaluationRecord:
             or self.evaluation_rule_version != specification.evaluation_rule.rule_version
         ):
             raise ValueError("evaluation rule identity does not match specification")
+
+        expected_alternative_ids = tuple(
+            item.alternative_id for item in specification.alternatives
+        )
+        actual_alternative_ids = tuple(
+            item.alternative_id for item in self.alternative_evaluations
+        )
+        if actual_alternative_ids != expected_alternative_ids:
+            raise ValueError(
+                "evaluation record must contain exactly one ordered result for every declared alternative"
+            )
+        for alternative, result in zip(
+            specification.alternatives, self.alternative_evaluations
+        ):
+            result.validate_against(
+                alternative,
+                specification.evaluation_rule.criterion_definitions,
+                outcome_registry,
+            )
 
         from samaritan.diagnosticity import DiagnosticitySynthesizer
 
