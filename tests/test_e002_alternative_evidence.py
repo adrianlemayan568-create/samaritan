@@ -370,3 +370,132 @@ def test_finding_evidence_is_limited_to_each_propositions_authenticated_selectio
         missing_information=("A complete result value",),
     )
     validator.validate_finding_evidence(focal, (insufficient,))
+
+
+def test_finding_evidence_is_isolated_between_simultaneous_alternatives(
+    tmp_path,
+):
+    repository, source, service = _context(tmp_path)
+
+    focal_ids, focal_observation_id = _ingest_specs(
+        service, source, _sequence(account="account-A")
+    )
+    _, generated = _pipeline(repository, focal_ids)
+    assert len(generated.hypotheses) == 1
+
+    focal_set = _evidence_set(
+        _all_event_ids(focal_ids), focal_observation_id
+    )
+    constructor, semantics = _constructor(repository)
+    focal = constructor.construct(
+        focal_set, "account_authentication_sequence", 1
+    )
+
+    alternative_inputs = (
+        ("account-B", "198.51.100.20", "success"),
+        ("account-C", "203.0.113.30", "failure"),
+    )
+    alternatives = []
+    alternative_event_ids = []
+    alternative_evidence_set_ids = []
+
+    for account, ip, result_value in alternative_inputs:
+        event_ids, observation_id = _ingest_specs(
+            service,
+            source,
+            _sequence(
+                account=account,
+                ip=ip,
+                success_data={"result": result_value},
+            ),
+        )
+        evidence_set = _evidence_set(
+            _all_event_ids(event_ids), observation_id
+        )
+        proposition = constructor.construct(
+            evidence_set, "account_authentication_sequence", 1
+        )
+        alternatives.append(
+            HypothesisAlternative(
+                alternative_id=new_id(),
+                proposition=proposition,
+                description=f"Independent synthetic alternative for {account}.",
+            )
+        )
+        alternative_event_ids.append(
+            event_ids["authentication_success"][0]
+        )
+        alternative_evidence_set_ids.append(evidence_set.evidence_set_id)
+
+    alternative_contracts = tuple(alternatives)
+    assert len({item.alternative_id for item in alternative_contracts}) == 2
+    assert len({item.proposition.proposition_id for item in alternative_contracts}) == 2
+    assert len(set(alternative_evidence_set_ids)) == 2
+    assert set(alternative_event_ids).isdisjoint(_all_event_ids(focal_ids))
+
+    engine, specification = _evaluate_neutrally(
+        repository,
+        semantics,
+        focal,
+        focal_set,
+        alternative_contracts,
+        generated.hypotheses[0],
+    )
+    assert specification.alternatives == alternative_contracts
+
+    record = engine.evaluate(specification, focal_set, production=False)
+    assert len(record.alternative_evaluations) == 2
+
+    validator = engine.provenance_validator
+    findings_by_alternative = {}
+    for index, alternative in enumerate(alternative_contracts):
+        evaluation = record.alternative_evaluations[index]
+        assert evaluation.alternative_id == alternative.alternative_id
+        assert evaluation.proposition_id == alternative.proposition.proposition_id
+        assert evaluation.evidence_set_id == alternative_evidence_set_ids[index]
+        assert len(evaluation.findings) == 1
+
+        finding = evaluation.findings[0]
+        assert finding.evidence[0] == EvidenceReference(
+            event_id=alternative_event_ids[index]
+        )
+        validator.validate_finding_evidence(
+            alternative.proposition, (finding,)
+        )
+        findings_by_alternative[alternative.alternative_id] = finding
+
+    # Each alternative's own selected event is accepted, but the other
+    # alternative's event must not cross the proposition boundary.
+    finding_a = findings_by_alternative[alternative_contracts[0].alternative_id]
+    finding_b = findings_by_alternative[alternative_contracts[1].alternative_id]
+    with pytest.raises(
+        PropositionProvenanceError,
+        match="event is outside the proposition evidence selection",
+    ):
+        validator.validate_finding_evidence(
+            alternative_contracts[0].proposition,
+            (
+                replace(
+                    finding_a,
+                    evidence=(
+                        EvidenceReference(event_id=alternative_event_ids[1]),
+                    ),
+                ),
+            ),
+        )
+
+    with pytest.raises(
+        PropositionProvenanceError,
+        match="event is outside the proposition evidence selection",
+    ):
+        validator.validate_finding_evidence(
+            alternative_contracts[1].proposition,
+            (
+                replace(
+                    finding_b,
+                    evidence=(
+                        EvidenceReference(event_id=alternative_event_ids[0]),
+                    ),
+                ),
+            ),
+        )
