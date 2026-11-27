@@ -850,7 +850,7 @@ def test_temporal_constraint_requires_integer_interval_limit():
         "a" * 129,
         "аccount",
         "admın",
-        "Cafe\\u0301",
+        "Cafe\u0301",
     ],
 )
 def test_semantics_rejects_hostile_or_ambiguous_identifiers(identifier):
