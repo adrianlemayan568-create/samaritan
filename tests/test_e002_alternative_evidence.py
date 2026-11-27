@@ -4,11 +4,18 @@ Synthetic-only test. The focal proposition and EvidenceSet remain constant
 while alternative-specific evidence changes.
 """
 
+from dataclasses import replace
 from time import perf_counter
+
+import pytest
 
 from samaritan.analysis_contracts import EvidenceReference
 from samaritan.contracts import new_id
-from samaritan.reasoning_contracts import HypothesisAlternative
+from samaritan.reasoning_contracts import (
+    CriterionFinding,
+    HypothesisAlternative,
+)
+from samaritan.proposition_validation import PropositionProvenanceError
 
 from test_e001_authentication_sequence import (
     _all_event_ids,
@@ -201,3 +208,165 @@ def test_e002_orchestration_evaluates_alternative_against_own_evidence(
 
     record_property("e002.comparison_count", len(comparisons))
     record_property("e002.focal_evidence_set_unchanged", True)
+
+
+
+def test_finding_evidence_is_limited_to_each_propositions_authenticated_selection(
+    tmp_path,
+):
+    repository, source, service = _context(tmp_path)
+
+    focal_specs = _sequence()
+    focal_specs.append(
+        {
+            "event_type": "unmapped_sibling",
+            "minute": 6,
+            "account": "account-A",
+            "ip": "192.0.2.10",
+            "data": {"kind": "unselected sibling event"},
+        }
+    )
+    focal_ids, focal_observation_id = _ingest_specs(
+        service, source, focal_specs
+    )
+    _, generated = _pipeline(repository, focal_ids)
+    assert len(generated.hypotheses) == 1
+
+    focal_event_ids = tuple(
+        focal_ids[event_type][0]
+        for event_type in (
+            "authentication_failure",
+            "authentication_success",
+            "host_activity",
+        )
+    )
+    focal_set = _evidence_set(focal_event_ids)
+    constructor, semantics = _constructor(repository)
+    focal = constructor.construct(
+        focal_set, "account_authentication_sequence", 1
+    )
+
+    alternative_ids, alternative_observation_id = _ingest_specs(
+        service, source, _sequence(account="account-B", ip="198.51.100.20")
+    )
+    alternative_set = _evidence_set(
+        _all_event_ids(alternative_ids), alternative_observation_id
+    )
+    alternative = constructor.construct(
+        alternative_set, "account_authentication_sequence", 1
+    )
+    alternative_contract = HypothesisAlternative(
+        alternative_id=new_id(),
+        proposition=alternative,
+        description="A separately selected synthetic alternative.",
+    )
+
+    engine, specification = _evaluate_neutrally(
+        repository,
+        semantics,
+        focal,
+        focal_set,
+        alternative_contract,
+        generated.hypotheses[0],
+    )
+    record = engine.evaluate(specification, focal_set, production=False)
+    focal_finding = record.findings[0]
+    alternative_finding = record.alternative_evaluations[0].findings[0]
+    validator = engine.provenance_validator
+
+    # Event-only selection authorizes the selected event and its parent
+    # observation as provenance, but not another event from that observation.
+    selected_success_id = focal_ids["authentication_success"][0]
+    validator.validate_finding_evidence(
+        focal,
+        (
+            replace(
+                focal_finding,
+                evidence=(
+                    EvidenceReference(event_id=selected_success_id),
+                    EvidenceReference(observation_id=focal_observation_id),
+                ),
+            ),
+        ),
+    )
+    with pytest.raises(
+        PropositionProvenanceError,
+        match="event is outside the proposition evidence selection",
+    ):
+        validator.validate_finding_evidence(
+            focal,
+            (
+                replace(
+                    focal_finding,
+                    evidence=(
+                        EvidenceReference(
+                            event_id=focal_ids["unmapped_sibling"][0]
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+    # A different, real observation is still unauthorized for the focal finding.
+    with pytest.raises(
+        PropositionProvenanceError,
+        match="observation is outside the proposition provenance selection",
+    ):
+        validator.validate_finding_evidence(
+            focal,
+            (
+                replace(
+                    focal_finding,
+                    evidence=(
+                        EvidenceReference(
+                            observation_id=alternative_observation_id
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+    # Alternative findings must be checked against the alternative's own
+    # manifest; focal evidence cannot be borrowed across proposition boundaries.
+    with pytest.raises(
+        PropositionProvenanceError,
+        match="event is outside the proposition evidence selection",
+    ):
+        validator.validate_finding_evidence(
+            alternative,
+            (
+                replace(
+                    alternative_finding,
+                    evidence=(EvidenceReference(event_id=selected_success_id),),
+                ),
+            ),
+        )
+
+    # Observation selection authorizes its resolved events, unlike event-only
+    # selection. This event belongs to the selected observation.
+    observation_set = _evidence_set((), focal_observation_id)
+    observation_selected_proposition = constructor.construct(
+        observation_set, "account_authentication_sequence", 1
+    )
+    validator.validate_finding_evidence(
+        observation_selected_proposition,
+        (
+            replace(
+                focal_finding,
+                evidence=(EvidenceReference(event_id=selected_success_id),),
+            ),
+        ),
+    )
+
+    # An insufficient finding may have no evidence, but any supplied reference
+    # would still be subject to the same manifest checks.
+    insufficient = CriterionFinding(
+        finding_id=new_id(),
+        criterion_id=focal_finding.criterion_id,
+        status="insufficient",
+        outcome_code=None,
+        evidence=(),
+        rationale="The synthetic source lacks a complete result.",
+        missing_information=("A complete result value",),
+    )
+    validator.validate_finding_evidence(focal, (insufficient,))

@@ -841,6 +841,13 @@ class HypothesisEvaluationRecord:
         if self.hypothesis_id != specification.hypothesis.hypothesis_id:
             raise ValueError("evaluation hypothesis ID does not match specification")
         if (
+            self.evidence_set_id
+            != specification.hypothesis.proposition.evidence_manifest.evidence_set_id
+        ):
+            raise ValueError(
+                "evaluation EvidenceSet ID does not match focal proposition manifest"
+            )
+        if (
             self.evaluation_rule_id != specification.evaluation_rule.evaluation_rule_id
             or self.evaluation_rule_version != specification.evaluation_rule.rule_version
         ):

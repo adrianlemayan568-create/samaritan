@@ -396,7 +396,7 @@ def test_hypothesis_evaluation_record_preserves_exact_rule_identity():
         hypothesis_id=specification.hypothesis.hypothesis_id,
         evaluation_rule_id=specification.evaluation_rule.evaluation_rule_id,
         evaluation_rule_version=specification.evaluation_rule.rule_version,
-        evidence_set_id=str(uuid4()),
+        evidence_set_id=specification.hypothesis.proposition.evidence_manifest.evidence_set_id,
         assessment_id=str(uuid4()),
         evaluated_at=datetime.now(timezone.utc),
         findings=(finding,),
@@ -416,6 +416,39 @@ def test_hypothesis_evaluation_record_preserves_exact_rule_identity():
     assert record.evaluation_rule_id == specification.evaluation_rule.evaluation_rule_id
     assert record.evaluation_rule_version == specification.evaluation_rule.rule_version
 
+
+
+
+
+
+def test_evaluation_record_rejects_mismatched_focal_evidence_set_id():
+    specification, _, _ = make_specification()
+    outcomes = CriterionOutcomeRegistry()
+    synthesis = DiagnosticitySynthesizer().synthesize(
+        specification, (), outcomes, production=False
+    )
+    record = HypothesisEvaluationRecord(
+        evaluation_id=str(uuid4()),
+        hypothesis_id=specification.hypothesis.hypothesis_id,
+        evaluation_rule_id=specification.evaluation_rule.evaluation_rule_id,
+        evaluation_rule_version=specification.evaluation_rule.rule_version,
+        evidence_set_id=(
+            specification.hypothesis.proposition.evidence_manifest.evidence_set_id
+        ),
+        assessment_id=str(uuid4()),
+        evaluated_at=datetime.now(timezone.utc),
+        findings=(),
+        synthesis=synthesis,
+    )
+    forged_record = replace(record, evidence_set_id=str(uuid4()))
+
+    with pytest.raises(
+        ValueError,
+        match="evaluation EvidenceSet ID does not match focal proposition manifest",
+    ):
+        forged_record.validate_against(
+            specification, outcomes, production=False
+        )
 
 
 def test_evaluation_record_requires_one_result_for_each_declared_alternative():
@@ -442,7 +475,7 @@ def test_evaluation_record_requires_one_result_for_each_declared_alternative():
         hypothesis_id=specification.hypothesis.hypothesis_id,
         evaluation_rule_id=specification.evaluation_rule.evaluation_rule_id,
         evaluation_rule_version=specification.evaluation_rule.rule_version,
-        evidence_set_id=str(uuid4()),
+        evidence_set_id=specification.hypothesis.proposition.evidence_manifest.evidence_set_id,
         assessment_id=str(uuid4()),
         evaluated_at=datetime.now(timezone.utc),
         findings=(finding,),
@@ -511,7 +544,7 @@ def test_evaluation_record_rejects_duplicate_alternative_results():
             hypothesis_id=specification.hypothesis.hypothesis_id,
             evaluation_rule_id=specification.evaluation_rule.evaluation_rule_id,
             evaluation_rule_version=specification.evaluation_rule.rule_version,
-            evidence_set_id=str(uuid4()),
+            evidence_set_id=specification.hypothesis.proposition.evidence_manifest.evidence_set_id,
             assessment_id=str(uuid4()),
             evaluated_at=datetime.now(timezone.utc),
             findings=(finding,),
@@ -948,7 +981,7 @@ def test_evaluation_record_rejects_forged_zero_finding_supported_synthesis():
         hypothesis_id=specification.hypothesis.hypothesis_id,
         evaluation_rule_id=specification.evaluation_rule.evaluation_rule_id,
         evaluation_rule_version=specification.evaluation_rule.rule_version,
-        evidence_set_id=str(uuid4()),
+        evidence_set_id=specification.hypothesis.proposition.evidence_manifest.evidence_set_id,
         assessment_id=str(uuid4()),
         evaluated_at=datetime.now(timezone.utc),
         findings=(),
@@ -997,7 +1030,7 @@ def test_evaluation_record_rejects_synthesis_forged_against_valid_finding():
         hypothesis_id=specification.hypothesis.hypothesis_id,
         evaluation_rule_id=specification.evaluation_rule.evaluation_rule_id,
         evaluation_rule_version=specification.evaluation_rule.rule_version,
-        evidence_set_id=str(uuid4()),
+        evidence_set_id=specification.hypothesis.proposition.evidence_manifest.evidence_set_id,
         assessment_id=str(uuid4()),
         evaluated_at=datetime.now(timezone.utc),
         findings=(finding,),
@@ -1043,7 +1076,7 @@ def test_evaluation_record_validation_uses_explicit_experimental_mode():
         hypothesis_id=specification.hypothesis.hypothesis_id,
         evaluation_rule_id=specification.evaluation_rule.evaluation_rule_id,
         evaluation_rule_version=specification.evaluation_rule.rule_version,
-        evidence_set_id=str(uuid4()),
+        evidence_set_id=specification.hypothesis.proposition.evidence_manifest.evidence_set_id,
         assessment_id=str(uuid4()),
         evaluated_at=datetime.now(timezone.utc),
         findings=(finding,),
@@ -1078,7 +1111,7 @@ def test_evaluation_record_rejects_finding_with_unregistered_outcome():
         hypothesis_id=specification.hypothesis.hypothesis_id,
         evaluation_rule_id=specification.evaluation_rule.evaluation_rule_id,
         evaluation_rule_version=specification.evaluation_rule.rule_version,
-        evidence_set_id=str(uuid4()),
+        evidence_set_id=specification.hypothesis.proposition.evidence_manifest.evidence_set_id,
         assessment_id=str(uuid4()),
         evaluated_at=datetime.now(timezone.utc),
         findings=(finding,),
@@ -1112,7 +1145,7 @@ def test_evaluation_record_rejects_supported_synthesis_from_only_insufficient_fi
         hypothesis_id=specification.hypothesis.hypothesis_id,
         evaluation_rule_id=specification.evaluation_rule.evaluation_rule_id,
         evaluation_rule_version=specification.evaluation_rule.rule_version,
-        evidence_set_id=str(uuid4()),
+        evidence_set_id=specification.hypothesis.proposition.evidence_manifest.evidence_set_id,
         assessment_id=str(uuid4()),
         evaluated_at=datetime.now(timezone.utc),
         findings=(finding,),

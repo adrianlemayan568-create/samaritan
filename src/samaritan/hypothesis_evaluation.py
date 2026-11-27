@@ -207,6 +207,16 @@ class HypothesisEvaluationEngine:
                 specification.alternatives, alternative_evidence_sets
             )
         )
+        self.provenance_validator.validate_finding_evidence(
+            focal_proposition, findings
+        )
+        for alternative, evaluation in zip(
+            specification.alternatives, alternative_evaluations
+        ):
+            self.provenance_validator.validate_finding_evidence(
+                alternative.proposition, evaluation.findings
+            )
+
         synthesis = self.synthesizer.synthesize(
             specification,
             findings,

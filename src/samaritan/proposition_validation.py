@@ -459,3 +459,54 @@ class PropositionProvenanceValidator:
                 raise PropositionProvenanceError(
                     f"parameter claims a source that is unavailable: {parameter_name}"
                 )
+
+
+    def validate_finding_evidence(
+        self,
+        proposition: Proposition,
+        findings: tuple,
+    ) -> None:
+        """Authenticate every finding reference against its proposition's manifest."""
+        from samaritan.reasoning_contracts import CriterionFinding
+
+        if type(proposition) is not Proposition:
+            raise TypeError("proposition must be a Proposition")
+        if type(findings) is not tuple or not all(
+            type(item) is CriterionFinding for item in findings
+        ):
+            raise TypeError("findings must be a tuple of CriterionFinding objects")
+
+        # Re-authenticate the proposition and its persisted EvidenceSet. A
+        # caller cannot authorize finding references with an unpersisted manifest.
+        self.validate(proposition)
+        try:
+            selection = resolve_manifest_selection(
+                self.repository, proposition.evidence_manifest
+            )
+        except PropositionProvenanceError:
+            raise
+        except (
+            DatabaseError,
+            sqlite3.Error,
+            UnicodeError,
+            ValueError,
+        ) as exc:
+            raise PropositionProvenanceError(
+                f"finding evidence provenance validation failed: {exc}"
+            ) from exc
+
+        allowed_event_ids = {item.event_id for item in selection.events}
+        allowed_observation_ids = {
+            item.observation_id for item in selection.provenance_observations
+        }
+        for finding in findings:
+            for reference in finding.evidence:
+                if reference.event_id is not None:
+                    if reference.event_id not in allowed_event_ids:
+                        raise PropositionProvenanceError(
+                            "finding evidence event is outside the proposition evidence selection"
+                        )
+                elif reference.observation_id not in allowed_observation_ids:
+                    raise PropositionProvenanceError(
+                        "finding evidence observation is outside the proposition provenance selection"
+                    )
